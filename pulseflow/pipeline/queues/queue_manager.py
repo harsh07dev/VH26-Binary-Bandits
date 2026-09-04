@@ -82,6 +82,43 @@ class QueueManager:
         queue = self.get_queue(priority)
         return queue.dequeue_nowait()
 
+    @property
+    def dispatcher(self):
+        """Access or instantiate the Dispatcher coordinating Lazy Priority Aging."""
+        from pipeline.dispatcher import Dispatcher
+        if not hasattr(self, "_dispatcher") or self._dispatcher is None:
+            self._dispatcher = Dispatcher(qm=self)
+        return self._dispatcher
+
+    async def get_with_aging(
+        self,
+        priority: Union[Priority, str],
+        timeout: Optional[float] = None,
+        now: Optional[float] = None,
+    ) -> Event:
+        """Dequeue the next event with Lazy Priority Aging applied when pulling from NORMAL."""
+        p = self._resolve_priority(priority)
+        if p == Priority.NORMAL:
+            return await self.dispatcher.pop_normal(timeout=timeout, now=now)
+        elif p == Priority.CRITICAL:
+            return await self.dispatcher.pop_critical(timeout=timeout)
+        else:
+            return await self.dispatcher.pop_best_effort(timeout=timeout)
+
+    def get_with_aging_nowait(
+        self,
+        priority: Union[Priority, str],
+        now: Optional[float] = None,
+    ) -> Event:
+        """Dequeue immediately with Lazy Priority Aging applied when pulling from NORMAL."""
+        p = self._resolve_priority(priority)
+        if p == Priority.NORMAL:
+            return self.dispatcher.pop_normal_nowait(now=now)
+        elif p == Priority.CRITICAL:
+            return self.dispatcher.pop_critical_nowait()
+        else:
+            return self.dispatcher.pop_best_effort_nowait()
+
     def depth(self, priority: Union[Priority, str]) -> int:
         """Return the current depth (number of waiting events) for a priority lane."""
         queue = self.get_queue(priority)
@@ -122,6 +159,14 @@ class QueueManager:
             Priority.NORMAL.value: self.normal_queue.capacity,
             Priority.BEST_EFFORT.value: self.best_effort_queue.capacity,
         }
+
+    def total_capacity(self) -> int:
+        """Return aggregate finite capacity across all lanes, or fallback to config."""
+        caps = [q.capacity for q in self._queues.values() if q.capacity is not None]
+        if caps:
+            return sum(caps)
+        from pipeline.config import config
+        return config.queue_capacity if config.queue_capacity > 0 else 1000
 
     def is_empty(self) -> bool:
         """Return True if all three queues are currently empty."""

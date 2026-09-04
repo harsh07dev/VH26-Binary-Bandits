@@ -416,5 +416,7 @@ async def run_pulseflow_benchmark(
             "avg": round(sum(best_latencies) / len(best_latencies), 2) if best_latencies else 0.0,
             "p95": round(_calculate_percentile(best_latencies, 95), 2),
             "p99": round(_calculate_percentile(best_latencies, 99), 2),
+            "max": round(max(best_latencies), 2) if best_latencies else 0.0,
+            "p100": round(max(best_latencies), 2) if best_latencies else 0.0,
         },
     }

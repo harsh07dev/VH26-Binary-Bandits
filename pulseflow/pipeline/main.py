@@ -18,6 +18,8 @@ from pipeline.workers.worker_pool import worker_pool
 from pipeline.ingestion.api import router as ingestion_router, set_enqueue_handler
 
 
+import asyncio
+import signal
 import time
 from collections import deque
 from typing import Any, Deque, Dict, Optional, Tuple
@@ -76,6 +78,60 @@ rate_tracker = RateTracker(window_sec=5.0)   # 5s window keeps spike bursts visi
 _rate_tracker = rate_tracker
 
 
+async def perform_graceful_shutdown(timeout: float = 3.0) -> None:
+    """Executes the strict graceful shutdown protocol:
+    1. Stop accepting new incoming HTTP events.
+    2. Stop the in-flight timeout monitor.
+    3. Allow workers to finish and ACK active in-flight items.
+    4. Gracefully terminate worker loops.
+    5. Trigger AuditLogger FIFO sentinel flush to persist all audit logs to SQLite.
+    6. Close SQLite database connection cleanly.
+    """
+    from pipeline.ingestion.api import set_enqueue_handler
+    from pipeline.consumer import in_flight_tracker
+    from pipeline.audit import audit_logger
+
+    # 1. Stop accepting new incoming events
+    set_enqueue_handler(None)
+
+    # 2. Stop in-flight timeout monitor
+    await in_flight_tracker.stop_monitor()
+
+    # 3. Allow active in-flight items to complete and ACK
+    drain_start = time.time()
+    while in_flight_tracker.in_flight_count > 0 and (time.time() - drain_start) < timeout:
+        await asyncio.sleep(0.05)
+
+    # 4. Gracefully stop WorkerPool and finish active batches
+    await worker_pool.stop(timeout=timeout)
+
+    # 5. Flush pending audit records via FIFO sentinel commit
+    await audit_logger.stop(timeout=timeout)
+
+    # 6. Close database connection
+    await database_manager.close()
+
+
+def setup_signal_handlers(loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+    """Attach OS signal handlers for SIGTERM and SIGINT."""
+    target_loop = loop
+    try:
+        if target_loop is None:
+            target_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+
+    def _on_signal(sig, frame):
+        if target_loop is not None and target_loop.is_running():
+            asyncio.run_coroutine_threadsafe(perform_graceful_shutdown(), target_loop)
+
+    for s in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(s, _on_signal)
+        except (ValueError, AttributeError):
+            pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Orchestrate pipeline startup and graceful shutdown sequences."""
@@ -121,7 +177,13 @@ async def lifespan(app: FastAPI):
 
     set_enqueue_handler(adaptive_enqueue)
 
-    # c. Start WorkerPool with configured allocations
+    # c. Start Audit Logger in WAL mode
+    from pipeline.audit import audit_logger
+    from pipeline.consumer import in_flight_tracker
+    await audit_logger.start()
+    in_flight_tracker.start_monitor()
+
+    # d. Start WorkerPool with configured allocations
     await worker_pool.start(
         initial_allocation=config.default_allocation,
         batch_sizes={
@@ -132,17 +194,16 @@ async def lifespan(app: FastAPI):
         },
     )
 
+    # e. Attach OS signal handlers for SIGTERM and SIGINT
+    try:
+        setup_signal_handlers(asyncio.get_running_loop())
+    except RuntimeError:
+        pass
+
     yield
 
-    # --- 2. Shutdown Sequence ---
-    # a. Stop accepting new events into the queues
-    set_enqueue_handler(None)
-
-    # b. Gracefully stop WorkerPool and finish active batches
-    await worker_pool.stop()
-
-    # c. Close database connection
-    await database_manager.close()
+    # --- 2. Graceful Shutdown Sequence ---
+    await perform_graceful_shutdown()
 
 
 # Core FastAPI Application

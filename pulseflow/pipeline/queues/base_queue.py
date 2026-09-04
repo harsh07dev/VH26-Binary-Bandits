@@ -84,6 +84,17 @@ class LaneQueue:
         self._dequeued_count += 1
         return event
 
+    def peek(self) -> Optional[Event]:
+        """Inspect the head event without removing it, or None if the queue is empty."""
+        try:
+            q = self.queue
+            internal_deque = getattr(q, "_queue", None)
+            if internal_deque and len(internal_deque) > 0:
+                return internal_deque[0]
+        except (AttributeError, IndexError):
+            pass
+        return None
+
     # Aliases matching asyncio.Queue naming
     async def get(self) -> Event:
         """Alias for dequeue."""

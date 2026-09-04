@@ -12,6 +12,7 @@ from contracts.events import Event
 from pipeline.queues.base_queue import LaneQueue
 from pipeline.processing.event_processor import EventProcessor
 from pipeline.workers.worker import BaseWorker, WorkerState
+from pipeline.consumer import in_flight_tracker
 
 
 class BatchWorker(BaseWorker):
@@ -72,12 +73,17 @@ class BatchWorker(BaseWorker):
 
             # 3. Process the collected batch
             if batch:
+                for event in batch:
+                    in_flight_tracker.track(event)
+
                 self.state = WorkerState.BUSY
                 try:
                     results = await self.processor.process_batch(batch, mode="BATCH")
                     self.batches_processed += 1
                     self.events_processed += len(batch)
                     self.total_latency_ms += sum(r.latency_ms for r in results)
+                    for event in batch:
+                        in_flight_tracker.ack(event.event_id)
                 except Exception:
                     self.errors_count += 1
                 finally:
