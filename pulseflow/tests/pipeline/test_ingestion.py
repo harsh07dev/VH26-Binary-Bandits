@@ -7,6 +7,7 @@ from httpx import AsyncClient, ASGITransport
 from contracts.priorities import Priority
 from contracts.events import Event
 from pipeline.ingestion.api import router, set_enqueue_handler
+from pipeline.queues.queue_manager import queue_manager
 
 
 @pytest.fixture
@@ -18,10 +19,12 @@ def app():
 
 @pytest.fixture(autouse=True)
 def clean_enqueue_handler():
-    """Ensure enqueue handler is reset before each test."""
-    set_enqueue_handler(None)
+    """Ensure enqueue handler is reset and queues are cleared before and after each test."""
+    queue_manager.clear()
+    set_enqueue_handler(queue_manager.enqueue)
     yield
-    set_enqueue_handler(None)
+    queue_manager.clear()
+    set_enqueue_handler(queue_manager.enqueue)
 
 
 @pytest.mark.asyncio

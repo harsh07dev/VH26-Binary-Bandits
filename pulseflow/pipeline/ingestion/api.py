@@ -17,19 +17,27 @@ from pipeline.ingestion.models import (
     HealthResponse,
 )
 
+from pipeline.queues.queue_manager import queue_manager
+
 router = APIRouter(tags=["Ingestion"])
 
 # Type definition for downstream enqueue handler: (event: Event, priority: Priority) -> Awaitable[None]
 EnqueueHandler = Callable[[Event, Priority], Awaitable[None]]
 
-# Active enqueue handler hook (connected to QueueManager when pipeline starts)
-_enqueue_handler: Optional[EnqueueHandler] = None
+# Active enqueue handler hook (defaults to QueueManager's priority routing enqueue)
+_enqueue_handler: Optional[EnqueueHandler] = queue_manager.enqueue
 
 
 def set_enqueue_handler(handler: Optional[EnqueueHandler]) -> None:
     """Register or replace the downstream queue ingestion handler."""
     global _enqueue_handler
     _enqueue_handler = handler
+
+
+def reset_enqueue_handler() -> None:
+    """Reset the enqueue handler back to the default QueueManager routing."""
+    global _enqueue_handler
+    _enqueue_handler = queue_manager.enqueue
 
 
 def get_enqueue_handler() -> Optional[EnqueueHandler]:
