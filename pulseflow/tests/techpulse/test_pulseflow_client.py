@@ -107,7 +107,7 @@ class TestPulseFlowClientHTTPBehaviour(unittest.IsolatedAsyncioTestCase):
         await client.send_batch(batch)
 
         posted_url = mock_http.post.call_args.args[0]
-        self.assertEqual(posted_url, "http://127.0.0.1:9000/events")
+        self.assertEqual(posted_url, "http://127.0.0.1:9000/events/batch")
 
     async def test_no_double_slash_in_url(self):
         """Base URL with trailing slash must not produce //events."""
@@ -115,7 +115,7 @@ class TestPulseFlowClientHTTPBehaviour(unittest.IsolatedAsyncioTestCase):
         await client.send_batch(_make_batch())
         posted_url = mock_http.post.call_args.args[0]
         self.assertNotIn("//events", posted_url)
-        self.assertTrue(posted_url.endswith("/events"))
+        self.assertTrue(posted_url.endswith("/events/batch"))
 
     async def test_correct_json_shape(self):
         """Request body must be {"events": [...]} (EventBatch schema)."""
