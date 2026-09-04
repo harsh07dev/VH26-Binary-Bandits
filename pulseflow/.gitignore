@@ -4,6 +4,11 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
 *.db
 
 # Node dependencies

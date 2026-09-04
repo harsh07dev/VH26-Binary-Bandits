@@ -1,28 +1,67 @@
 /* 
-  Simulated WebSocket/API connection to Machine 1 (PulseFlow Generator).
-  This abstracts the simulation logic out of the UI, preparing for a real backend connection.
+  Real API connection to Machine 2 (PulseFlow Pipeline).
+  Polls the /metrics/adaptive endpoint every ~1.2s and broadcasts to subscribers.
+  Falls back gracefully when the backend is unreachable.
 */
 
-const eventMix = [
-  { type: 'PAYMENT', tier: 'Critical', pct: 15, isCritical: true },
-  { type: 'ORDER', tier: 'Critical', pct: 25, isCritical: true },
-  { type: 'INVENTORY', tier: 'Normal', pct: 15, isCritical: false },
-  { type: 'ACTIVITY / VIEWS', tier: 'Best Effort', pct: 30, isCritical: false },
-  { type: 'LOGS / TELEMETRY', tier: 'Best Effort', pct: 15, isCritical: false },
-]
+const BACKEND_URL = 'http://localhost:8000';
+const POLL_INTERVAL_MS = 1200;
 
-class TelemetryService {
+export class TelemetryService {
   constructor() {
     this.subscribers = new Set();
     this.eventSubscribers = new Set();
-    this.isSpikeMode = false;
-    this.shedStats = { shed: 1519, deferred: 3483 };
-    
-    this.startSimulation();
+    this.connectionSubscribers = new Set();
+    this.seenEvents = new Set();
+    this.lastPayload = null;
+    this.connected = false;
+    this.isFetching = false;
+    this.isPolling = false;
+    this.pollTimer = null;
+    this.initialTimeout = null;
+
+    this.startPolling();
+  }
+
+  /**
+   * Returns current backend connection status.
+   */
+  get isConnected() {
+    return this.connected;
+  }
+
+  getConnectionStatus() {
+    return this.connected;
+  }
+
+  /**
+   * Subscribe to backend connection status changes.
+   * Immediately invokes callback with current connection state.
+   */
+  onConnectionChange(callback) {
+    this.connectionSubscribers.add(callback);
+    callback(this.connected);
+    return () => this.connectionSubscribers.delete(callback);
+  }
+
+  setConnected(status) {
+    const changed = this.connected !== status;
+    this.connected = status;
+    if (changed) {
+      this.connectionSubscribers.forEach(cb => {
+        try {
+          cb(this.connected);
+        } catch (e) {
+          console.error('[TelemetryService] Connection callback error:', e);
+        }
+      });
+    }
   }
 
   onTelemetryUpdate(callback) {
     this.subscribers.add(callback);
+    // Immediately emit last known payload if available
+    if (this.lastPayload) callback(this.lastPayload);
     return () => this.subscribers.delete(callback);
   }
 
@@ -31,76 +70,169 @@ class TelemetryService {
     return () => this.eventSubscribers.delete(callback);
   }
 
-  _notifyTelemetry() {
-    const metrics = this.isSpikeMode 
-      ? { queueSize: 12480, latency: 85, workerLoad: 92, processingCost: 'HIGH', isSpikeMode: true, ingress: 20000, throughput: 320 }
-      : { queueSize: 1140, latency: 12, workerLoad: 45, processingCost: 'LOW', isSpikeMode: false, ingress: 1000, throughput: 1000 };
-      
-    const infraMetrics = this.isSpikeMode 
-      ? { queueT1: 120, latT1: 4, queueT2: 2840, latT2: 38, queueT3: 9520, latT3: 210, w1: 82, w2: 76, w3: 71, w4: 68 }
-      : { queueT1: 24, latT1: 2, queueT2: 45, latT2: 3, queueT3: 115, latT3: 6, w1: 42, w2: 38, w3: 40, w4: 35 };
-
-    const payload = { metrics, infraMetrics, shedStats: this.shedStats };
-    this.subscribers.forEach(cb => cb(payload));
-  }
-
-  _getProcessingDecision(priority, queueSize, latency, workerLoad, dataSize, processingCost) {
-    const isSpike = queueSize > 10000 || latency > 50 || workerLoad > 85;
-    if (!isSpike) return 'STREAM';
-    
-    if (priority === 'Critical') return 'STREAM';
-    if (priority === 'Normal') return 'MICRO-BATCH';
-    if (priority === 'Best Effort') {
-      if (processingCost === 'HIGH' && dataSize > 500) return 'SAMPLE';
-      return 'DEFER';
+  async fetchTelemetry() {
+    // Prevent overlapping polling requests
+    if (this.isFetching) {
+      return;
     }
-    return 'DEFER';
+
+    this.isFetching = true;
+    try {
+      const response = await fetch(`${BACKEND_URL}/metrics/adaptive`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const data = await response.json();
+      this.setConnected(true);
+
+      // ── Map backend response to dashboard shape ──────────────────────
+      const totalWorkers = (data.infraMetrics?.totalWorkers && Number(data.infraMetrics.totalWorkers) > 0)
+        ? Number(data.infraMetrics.totalWorkers)
+        : 8;
+
+      const infraMetrics = {
+        // Queue depths (real)
+        queueT1: data.infraMetrics?.queueT1 ?? 0,
+        queueT2: data.infraMetrics?.queueT2 ?? 0,
+        queueT3: data.infraMetrics?.queueT3 ?? 0,
+        // Latency
+        latT1: data.infraMetrics?.latT1 ?? 0,
+        latT2: data.infraMetrics?.latT2 ?? 0,
+        latT3: data.infraMetrics?.latT3 ?? 0,
+        // Worker allocation → convert count to % of pool for the progress bars
+        w1: Math.round(((data.infraMetrics?.w1 ?? 0) / totalWorkers) * 100),
+        w2: Math.round(((data.infraMetrics?.w2 ?? 0) / totalWorkers) * 100),
+        w3: Math.round(((data.infraMetrics?.w3 ?? 0) / totalWorkers) * 100),
+        w4: Math.round(((data.infraMetrics?.w4 ?? 0) / totalWorkers) * 100),
+        // Raw worker counts
+        w1Count: data.infraMetrics?.w1 ?? 0,
+        w2Count: data.infraMetrics?.w2 ?? 0,
+        w3Count: data.infraMetrics?.w3 ?? 0,
+        w4Count: data.infraMetrics?.w4 ?? 0,
+        totalWorkers,
+      };
+
+      // Pressure state from backend drives isSpikeMode
+      const pressureState = data.metrics?.pressureState ?? 
+        (data.metrics?.isSpikeMode ? 'HIGH' : 'NORMAL');
+
+      // Consume the actual ingress rate from the new fields or fallback to ingress
+      const actualIngressRate = Number(
+        data.metrics?.actual_ingress_rate ??
+        data.metrics?.ingress_rate ??
+        data.metrics?.ingressRate ??
+        data.actual_ingress_rate ??
+        data.ingress_rate ??
+        data.ingressRate ??
+        data.metrics?.ingress ??
+        0
+      );
+
+      const metrics = {
+        queueSize:         data.metrics?.queueSize ?? 0,
+        latency:           data.metrics?.latency ?? 0,
+        workerLoad:        Math.round(data.metrics?.workerLoad ?? 0),
+        processingCost:    data.metrics?.processingCost ?? 'LOW',
+        isSpikeMode:       data.metrics?.isSpikeMode ?? false,
+        ingress:           actualIngressRate,
+        actualIngressRate: actualIngressRate,
+        ingressRate:       actualIngressRate,
+        throughput:        data.metrics?.throughput ?? 0,
+        pressureState,
+        pressureScore:     data.metrics?.pressureScore ?? 0,
+      };
+
+      const shedStats = {
+        shed:     data.shedStats?.shed ?? 0,
+        deferred: data.shedStats?.deferred ?? 0,
+        sampled:  data.shedStats?.sampled ?? 0,
+        batched:  data.shedStats?.batched ?? 0,
+        streamed: data.shedStats?.streamed ?? 0,
+      };
+
+      const payload = {
+        metrics,
+        infraMetrics,
+        shedStats,
+        connected: this.connected,
+        actualIngressRate,
+        // Raw snapshot of the current recent-events window — type + tier only,
+        // so subscribers can compute live distributions (e.g. event mix).
+        recentEventTypes: (data.recentEvents ?? []).map(e => ({
+          type: e.type ?? 'EVENT',
+          tier: e.tier  ?? 'NORMAL',
+        })),
+      };
+      this.lastPayload = payload;
+      this.subscribers.forEach(cb => cb(payload));
+
+      // ── Dispatch new events to stream table ─────────────────────────
+      const recentEvents = data.recentEvents ?? [];
+      recentEvents.forEach(evt => {
+        if (!this.seenEvents.has(evt.id)) {
+          this.seenEvents.add(evt.id);
+          if (this.seenEvents.size > 2000) this.seenEvents.clear();
+
+          // Normalise time field — backend stores ISO timestamp, dashboard expects HH:MM:SS.mmm
+          const timeStr = evt.time
+            ? (typeof evt.time === 'number'
+                ? new Date(evt.time * 1000).toISOString().substring(11, 23)
+                : String(evt.time).substring(11, 23))
+            : new Date().toISOString().substring(11, 23);
+
+          // Normalise tier label for dashboard badge colours
+          const tierMap = { CRITICAL: 'Critical', NORMAL: 'Normal', BEST_EFFORT: 'Best Effort' };
+          const statusMap = { STREAM: 'STREAM', BATCH: 'MICRO-BATCH', DEFER: 'DEFER', SAMPLE: 'SAMPLE', SHED: 'SHED' };
+
+          this.eventSubscribers.forEach(cb => cb({
+            time:   timeStr,
+            id:     evt.id ?? ('evt_' + Math.random().toString(16).substring(2, 7)),
+            type:   evt.type ?? 'EVENT',
+            tier:   tierMap[evt.tier] ?? evt.tier,
+            status: statusMap[evt.status] ?? evt.status,
+            reason: evt.reason ?? '',
+          }));
+        }
+      });
+
+    } catch (err) {
+      if (this.connected) {
+        console.warn('[TelemetryService] Backend unreachable — retrying:', err.message);
+      }
+      this.setConnected(false);
+    } finally {
+      this.isFetching = false;
+    }
   }
 
-  _generateEvent() {
-    const randomMix = eventMix[Math.floor(Math.random() * eventMix.length)];
-    const dataSize = Math.random() * 1000;
-    
-    const decision = this._getProcessingDecision(
-      randomMix.tier, 
-      this.isSpikeMode ? 12480 : 1140, 
-      this.isSpikeMode ? 85 : 12, 
-      this.isSpikeMode ? 92 : 45, 
-      dataSize, 
-      this.isSpikeMode ? 'HIGH' : 'LOW'
-    );
-    
-    const newEvt = {
-      time: new Date().toISOString().substring(11, 23),
-      id: 'evt_' + Math.random().toString(16).substring(2, 7),
-      type: randomMix.type,
-      tier: randomMix.tier,
-      status: decision,
-    };
-    
-    this.eventSubscribers.forEach(cb => cb(newEvt));
+  startPolling(intervalMs = POLL_INTERVAL_MS) {
+    this.stopPolling();
+    this.isPolling = true;
+
+    // Initial fetch immediately
+    this.initialTimeout = setTimeout(() => {
+      if (this.isPolling) {
+        this.fetchTelemetry();
+      }
+    }, 100);
+
+    // Then poll on interval
+    this.pollTimer = setInterval(() => {
+      if (this.isPolling) {
+        this.fetchTelemetry();
+      }
+    }, intervalMs);
   }
 
-  startSimulation() {
-    setInterval(() => {
-      this.isSpikeMode = !this.isSpikeMode;
-      this._notifyTelemetry();
-    }, 12000);
-
-    setInterval(() => {
-      const count = Math.floor(Math.random() * 3) + 1;
-      for(let i=0; i<count; i++) {
-        this._generateEvent();
-      }
-
-      if (this.isSpikeMode) {
-        this.shedStats.shed += Math.floor(Math.random() * 12);
-        this.shedStats.deferred += Math.floor(Math.random() * 30);
-        this._notifyTelemetry();
-      }
-    }, 1200);
-
-    setTimeout(() => this._notifyTelemetry(), 100);
+  stopPolling() {
+    this.isPolling = false;
+    if (this.initialTimeout) {
+      clearTimeout(this.initialTimeout);
+      this.initialTimeout = null;
+    }
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
   }
 }
 
