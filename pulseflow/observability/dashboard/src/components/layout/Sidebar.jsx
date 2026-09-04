@@ -1,19 +1,10 @@
-import { Zap, Layers, Users, GitBranch, Eye, Settings } from 'lucide-react'
+import { Eye } from 'lucide-react'
 
 /* ─ Nav structure ──────────────────────────────────────────── */
 const sections = [
   {
-    label: 'Simulator & Core',
+    label: 'Observability',
     items: [
-      { id: 'load-spiker', label: 'Load Spiker', icon: Zap },
-    ],
-  },
-  {
-    label: 'Infrastructure',
-    items: [
-      { id: 'queues',        label: 'Queues',        icon: Layers },
-      { id: 'workers',       label: 'Workers',       icon: Users },
-      { id: 'decisions',     label: 'Decisions',     icon: GitBranch },
       { id: 'observability', label: 'Observability', icon: Eye },
     ],
   },
@@ -66,19 +57,6 @@ export default function Sidebar({ activeNav, onNavChange }) {
             </nav>
           </div>
         ))}
-      </div>
-
-      {/* ── Footer ────────────────────────────────────────── */}
-      <div className="sidebar-footer">
-        <button
-          className={`sidebar-nav-item${activeNav === 'settings' ? ' active' : ''}`}
-          onClick={() => onNavChange('settings')}
-          id="nav-settings"
-          title="Settings"
-        >
-          <Settings size={13} className="sidebar-nav-icon" strokeWidth={1.8} />
-          <span>Settings</span>
-        </button>
       </div>
 
     </aside>

@@ -9,9 +9,9 @@ export default function Topbar() {
 
       {/* ── Left: title stack ─────────────────────────────── */}
       <div className="topbar-left">
-        <div className="topbar-title">Synthetic Load Spiker &amp; Surge Engine</div>
+        <div className="topbar-title">Tech Pulse <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>|</span> Synthetic Load Spiker &amp; Surge Engine</div>
         <div className="topbar-subtitle">
-          Select spike volume, preview immediate pipeline stress, and trigger instantaneous surge waves.
+          Generate controlled synthetic traffic and payload spikes for the PulseFlow adaptive pipeline.
         </div>
       </div>
 

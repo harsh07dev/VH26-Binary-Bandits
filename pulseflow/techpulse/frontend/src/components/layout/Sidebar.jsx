@@ -1,20 +1,11 @@
-import { Zap, Layers, Users, GitBranch, Eye, Settings } from 'lucide-react'
+import { Zap, Settings } from 'lucide-react'
 
 /* ─ Nav structure ─────────────────────────────────────────── */
 const sections = [
   {
-    label: 'Simulator & Core',
+    label: 'Simulator',
     items: [
       { id: 'load-spiker', label: 'Load Spiker', icon: Zap },
-    ],
-  },
-  {
-    label: 'Infrastructure',
-    items: [
-      { id: 'queues',        label: 'Queues',        icon: Layers },
-      { id: 'workers',       label: 'Workers',       icon: Users },
-      { id: 'decisions',     label: 'Decisions',     icon: GitBranch },
-      { id: 'observability', label: 'Observability', icon: Eye },
     ],
   },
 ]
@@ -42,7 +33,7 @@ export default function Sidebar({ activeNav, onNavChange }) {
         <div className="sidebar-brand-icon">
           <PulseLogo />
         </div>
-        <span className="sidebar-brand-name">PulseFlow</span>
+        <span className="sidebar-brand-name">Tech Pulse</span>
       </div>
 
       {/* ── Nav sections ──────────────────────────────────── */}

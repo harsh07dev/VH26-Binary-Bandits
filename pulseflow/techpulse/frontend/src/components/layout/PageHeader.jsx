@@ -12,12 +12,13 @@ export default function PageHeader({ spikesInjected = 44, spikesTotal = 50, boos
 
       {/* Title */}
       <h1 className="page-header-title">
-        Synthetic Load Spiker &amp; Surge Engine
+        Tech Pulse
       </h1>
 
       {/* Subtitle */}
       <p className="page-header-subtitle">
-        Machine 1 &mdash; inject controlled traffic spikes to stress-test downstream pipeline classification and adaptive scheduling.
+        <strong style={{ color: 'var(--color-text-primary)' }}>Synthetic Load Spiker &amp; Surge Engine</strong><br/>
+        Generate controlled synthetic traffic and payload spikes for the PulseFlow adaptive pipeline.
       </p>
 
       {/* Stat pills row */}
