@@ -39,3 +39,12 @@ PIPELINE_BASE_URL: str = _get_base_url()
 
 #: Default HTTP request timeout for a single batch send (seconds).
 DEFAULT_HTTP_TIMEOUT: float = 10.0
+
+#: The traffic profile to run (steady, ramp, surge, harmonic)
+TECHPULSE_PROFILE: str = os.environ.get("TECHPULSE_PROFILE", "steady").lower()
+
+#: Baseline event rate (events/sec)
+TECHPULSE_RATE: float = float(os.environ.get("TECHPULSE_RATE", "100.0"))
+
+#: Number of events to send per HTTP batch
+TECHPULSE_BATCH_SIZE: int = int(os.environ.get("TECHPULSE_BATCH_SIZE", "50"))
