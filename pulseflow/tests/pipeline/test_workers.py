@@ -250,6 +250,9 @@ def app():
 @pytest.mark.asyncio
 async def test_end_to_end_pipeline_flow(app, test_processor, test_repo):
     """Verify full end-to-end event flow: Ingestion -> Queue -> Worker -> SQLite."""
+    queue_manager.clear()
+    set_enqueue_handler(queue_manager.enqueue)
+
     # Wire queue manager to processor via WorkerPool
     pool = WorkerPool(qm=queue_manager, processor=test_processor)
     await pool.start(
@@ -263,9 +266,6 @@ async def test_end_to_end_pipeline_flow(app, test_processor, test_repo):
             Priority.BEST_EFFORT: 30.0,
         },
     )
-
-    queue_manager.clear()
-    set_enqueue_handler(queue_manager.enqueue)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

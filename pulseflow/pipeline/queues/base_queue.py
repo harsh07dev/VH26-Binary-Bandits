@@ -13,18 +13,41 @@ from contracts.events import Event
 class LaneQueue:
     """Asynchronous in-memory queue for an individual priority lane."""
 
-    def __init__(self, priority: Priority, maxsize: int = 0) -> None:
+    def __init__(self, priority: Priority, maxsize: int = 0, capacity: Optional[int] = None) -> None:
         self.priority = priority
         self.maxsize = maxsize
+        # Explicit finite capacity (for pressure calculations). If 0 or None, treated as unbounded (None)
+        if capacity is not None:
+            self.capacity: Optional[int] = capacity if capacity > 0 else None
+        else:
+            self.capacity: Optional[int] = maxsize if maxsize > 0 else None
+
         self._queue: asyncio.Queue[Event] = asyncio.Queue(maxsize=maxsize)
         self._enqueued_count: int = 0
         self._dequeued_count: int = 0
+
+    @property
+    def is_unbounded(self) -> bool:
+        """True if the queue has no finite upper capacity limit."""
+        return self.capacity is None
+
+    @property
+    def queue(self) -> asyncio.Queue[Event]:
+        """Return the underlying asyncio.Queue, resetting if bound to a closed or foreign event loop."""
+        try:
+            current_loop = asyncio.get_running_loop()
+            q_loop = getattr(self._queue, "_loop", None)
+            if q_loop is not None and (q_loop.is_closed() or q_loop is not current_loop):
+                self._queue = asyncio.Queue(maxsize=self.maxsize)
+        except RuntimeError:
+            pass
+        return self._queue
 
     async def enqueue(self, event: Event) -> None:
         """Enqueue an event asynchronously."""
         if event.priority is None:
             event.priority = self.priority
-        await self._queue.put(event)
+        await self.queue.put(event)
         self._enqueued_count += 1
 
     def enqueue_nowait(self, event: Event) -> None:
@@ -34,7 +57,7 @@ class LaneQueue:
         """
         if event.priority is None:
             event.priority = self.priority
-        self._queue.put_nowait(event)
+        self.queue.put_nowait(event)
         self._enqueued_count += 1
 
     # Aliases matching asyncio.Queue naming
@@ -48,7 +71,7 @@ class LaneQueue:
 
     async def dequeue(self) -> Event:
         """Dequeue the next event asynchronously."""
-        event = await self._queue.get()
+        event = await self.queue.get()
         self._dequeued_count += 1
         return event
 
@@ -57,7 +80,7 @@ class LaneQueue:
         
         Raises asyncio.QueueEmpty if empty.
         """
-        event = self._queue.get_nowait()
+        event = self.queue.get_nowait()
         self._dequeued_count += 1
         return event
 
@@ -72,42 +95,47 @@ class LaneQueue:
 
     def depth(self) -> int:
         """Return the current number of events buffered in this lane."""
-        return self._queue.qsize()
+        return self.queue.qsize()
 
     def qsize(self) -> int:
         """Alias for depth."""
-        return self._queue.qsize()
+        return self.queue.qsize()
 
     def is_empty(self) -> bool:
         """Return True if the queue is empty."""
-        return self._queue.empty()
+        return self.queue.empty()
 
     def empty(self) -> bool:
         """Alias for is_empty."""
-        return self._queue.empty()
+        return self.queue.empty()
 
     def is_full(self) -> bool:
         """Return True if the queue is at capacity."""
-        return self._queue.full()
+        return self.queue.full()
 
     def full(self) -> bool:
         """Alias for is_full."""
-        return self._queue.full()
+        return self.queue.full()
 
     def task_done(self) -> None:
         """Indicate that a formerly enqueued task is complete."""
-        self._queue.task_done()
+        self.queue.task_done()
 
     def clear(self) -> int:
         """Drain and discard all currently queued events. Returns count of removed events."""
         drained = 0
-        while not self._queue.empty():
-            try:
-                self._queue.get_nowait()
-                self._queue.task_done()
-                drained += 1
-            except (asyncio.QueueEmpty, ValueError):
-                break
+        try:
+            q = self.queue
+            while not q.empty():
+                try:
+                    q.get_nowait()
+                    q.task_done()
+                    drained += 1
+                except (asyncio.QueueEmpty, ValueError):
+                    break
+        except (RuntimeError, Exception):
+            pass
+        self._queue = asyncio.Queue(maxsize=self.maxsize)
         return drained
 
     @property

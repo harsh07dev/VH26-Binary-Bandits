@@ -46,7 +46,20 @@ class WorkerPool:
         self._modes: Dict[Priority, str] = dict(self.DEFAULT_MODES)
         self._worker_counter: int = 0
         self._is_running: bool = False
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        try:
+            current_loop = asyncio.get_running_loop()
+            if self._lock is not None:
+                lock_loop = getattr(self._lock, "_loop", None)
+                if lock_loop is not None and (lock_loop.is_closed() or lock_loop is not current_loop):
+                    self._lock = None
+        except RuntimeError:
+            pass
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     @property
     def is_running(self) -> bool:
@@ -99,7 +112,7 @@ class WorkerPool:
         
         This is the execution interface called by the adaptive engine (worker_allocator).
         """
-        async with self._lock:
+        async with self._get_lock():
             # Update processing modes if provided
             if modes:
                 for k, v in modes.items():
@@ -157,7 +170,7 @@ class WorkerPool:
         batch_timeouts_ms: Optional[Dict[Union[Priority, str], float]] = None,
     ) -> None:
         """Start the worker pool and launch all assigned workers."""
-        async with self._lock:
+        async with self._get_lock():
             if self._is_running:
                 return
             self._is_running = True
@@ -178,14 +191,14 @@ class WorkerPool:
 
     async def stop(self, timeout: float = 3.0) -> None:
         """Gracefully stop all running workers in the pool."""
-        async with self._lock:
+        async with self._get_lock():
             self._is_running = False
             all_workers = [w for workers in self._workers.values() for w in workers]
 
         if all_workers:
             await asyncio.gather(*[w.stop(timeout=timeout) for w in all_workers], return_exceptions=True)
 
-        async with self._lock:
+        async with self._get_lock():
             for p in self._workers:
                 self._workers[p] = []
 

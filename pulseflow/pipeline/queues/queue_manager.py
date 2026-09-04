@@ -23,10 +23,11 @@ class QueueManager:
         critical_queue: Optional[CriticalQueue] = None,
         normal_queue: Optional[NormalQueue] = None,
         best_effort_queue: Optional[BestEffortQueue] = None,
+        default_capacity: Optional[int] = None,
     ) -> None:
-        self.critical_queue = critical_queue or CriticalQueue()
-        self.normal_queue = normal_queue or NormalQueue()
-        self.best_effort_queue = best_effort_queue or BestEffortQueue()
+        self.critical_queue = critical_queue or CriticalQueue(capacity=default_capacity)
+        self.normal_queue = normal_queue or NormalQueue(capacity=default_capacity)
+        self.best_effort_queue = best_effort_queue or BestEffortQueue(capacity=default_capacity)
 
         self._queues: Dict[Priority, LaneQueue] = {
             Priority.CRITICAL: self.critical_queue,
@@ -109,6 +110,18 @@ class QueueManager:
             normal=self.normal_queue.depth(),
             best_effort=self.best_effort_queue.depth(),
         )
+
+    def capacity(self, priority: Union[Priority, str]) -> Optional[int]:
+        """Return the capacity limit of a lane, or None if unbounded."""
+        return self.get_queue(priority).capacity
+
+    def capacities(self) -> Dict[str, Optional[int]]:
+        """Return capacity limits for all lanes (None if unbounded)."""
+        return {
+            Priority.CRITICAL.value: self.critical_queue.capacity,
+            Priority.NORMAL.value: self.normal_queue.capacity,
+            Priority.BEST_EFFORT.value: self.best_effort_queue.capacity,
+        }
 
     def is_empty(self) -> bool:
         """Return True if all three queues are currently empty."""
