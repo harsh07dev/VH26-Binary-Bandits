@@ -56,21 +56,21 @@ class TelemetryClient {
     console.log(`[TechPulse] Injecting SPIKE to Machine 2 (Level: ${level}, Events: ${expectedEvents})...`);
     this.resetSpike();
 
-    const batchSize = Math.max(40, Math.min(100, Math.round((expectedEvents || 200) / 4)));
+    const batchSize = Math.max(100, Math.min(500, Math.round((expectedEvents || 1000) / 20)));
     
     // Send immediate first burst
     this.sendBatch(batchSize);
 
-    // Send rapid follow-up bursts over the next 2-3 seconds to generate high sustained pressure
+    // Send rapid follow-up bursts over the next 3-4 seconds to generate sustained pressure
     let burstsSent = 0;
-    const maxBursts = Math.min(15, Math.max(6, Number(level) * 2));
+    const maxBursts = Math.min(30, Math.max(10, Number(level) * 4));
     this.spikeInterval = setInterval(() => {
       burstsSent++;
       this.sendBatch(batchSize);
       if (burstsSent >= maxBursts) {
         this.resetSpike();
       }
-    }, 180);
+    }, 100);
   }
 
   /**

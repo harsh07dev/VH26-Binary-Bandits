@@ -72,7 +72,7 @@ class RateTracker:
         return self.get_rate()
 
 
-rate_tracker = RateTracker()
+rate_tracker = RateTracker(window_sec=5.0)   # 5s window keeps spike bursts visible for full TechPulse send cycle
 _rate_tracker = rate_tracker
 
 
