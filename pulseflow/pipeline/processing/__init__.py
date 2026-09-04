@@ -1,3 +1,10 @@
-"""PulseFlow module: __init__."""
+"""PulseFlow pipeline: Processing package."""
 
-# Implementation owned by the corresponding team member.
+from pipeline.processing.processing_result import ProcessingResult
+from pipeline.processing.event_processor import EventProcessor, event_processor
+
+__all__ = [
+    "ProcessingResult",
+    "EventProcessor",
+    "event_processor",
+]
