@@ -48,6 +48,18 @@ async def test_full_pipeline_lifespan_and_endpoints():
             assert wm_data["normal"] >= 4
             assert wm_data["best_effort"] >= 2
 
+            # 5. Adaptive metrics endpoint
+            res_ad = await client.get("/metrics/adaptive")
+            assert res_ad.status_code == 200
+            ad_data = res_ad.json()
+            assert "metrics" in ad_data
+            assert "infraMetrics" in ad_data
+            assert "shedStats" in ad_data
+            assert "recentEvents" in ad_data
+            assert "ingress" in ad_data["metrics"]
+            assert "actual_ingress_rate" in ad_data["metrics"]
+            assert "actual_ingress_rate" in ad_data
+
     # After lifespan exit, worker pool should be gracefully stopped
     assert not worker_pool.is_running
 

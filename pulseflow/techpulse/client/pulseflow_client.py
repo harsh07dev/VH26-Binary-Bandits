@@ -34,7 +34,7 @@ from techpulse.config import DEFAULT_HTTP_TIMEOUT, PIPELINE_BASE_URL
 logger = logging.getLogger(__name__)
 
 # Path that Machine Two's ingestion endpoint listens on.
-_EVENTS_PATH = "/events"
+_EVENTS_PATH = "/events/batch"
 
 
 class PulseFlowClientError(Exception):
