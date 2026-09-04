@@ -1,5 +1,48 @@
+# Python artifacts
 __pycache__/
 *.py[cod]
+.pytest_cache/
 .venv/
-.env
+venv/
 *.db
+
+# Node dependencies
+**/node_modules/
+
+# Build / output
+**/dist/
+**/build/
+
+# Vite / bundler caches
+**/.vite/
+**/.cache/
+**/.parcel-cache/
+**/coverage/
+**/.turbo/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
