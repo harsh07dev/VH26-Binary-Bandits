@@ -1,3 +1,17 @@
-"""PulseFlow module: __init__."""
+"""PulseFlow pipeline: Classification package."""
 
-# Implementation owned by the corresponding team member.
+from pipeline.classification.priority_classifier import (
+    classify,
+    classify_event,
+    classify_event_type,
+    EVENT_TYPE_PRIORITY_MAP,
+    Priority,
+)
+
+__all__ = [
+    "classify",
+    "classify_event",
+    "classify_event_type",
+    "EVENT_TYPE_PRIORITY_MAP",
+    "Priority",
+]
