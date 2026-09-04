@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 .env
 *.db
+node_modules/
+.vite/
+dist/
