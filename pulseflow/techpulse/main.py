@@ -65,10 +65,11 @@ async def _run_techpulse() -> None:
     logger.info("Initializing TechPulse...")
     logger.info("Pipeline Target: %s", config.PIPELINE_BASE_URL)
     logger.info(
-        "Config: Profile=%s, Rate=%.2f, BatchSize=%d",
+        "Config: Profile=%s, Rate=%.2f, BatchSize=%d, Concurrency=%d",
         config.TECHPULSE_PROFILE,
         config.TECHPULSE_RATE,
         config.TECHPULSE_BATCH_SIZE,
+        config.TECHPULSE_CONCURRENCY,
     )
 
     try:
@@ -86,6 +87,7 @@ async def _run_techpulse() -> None:
         factory=factory,
         sink=client.send_batch,
         batch_size=config.TECHPULSE_BATCH_SIZE,
+        concurrency=config.TECHPULSE_CONCURRENCY,
     )
 
     # Setup Ctrl+C / SIGINT termination event

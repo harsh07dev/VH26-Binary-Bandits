@@ -48,3 +48,7 @@ TECHPULSE_RATE: float = float(os.environ.get("TECHPULSE_RATE", "100.0"))
 
 #: Number of events to send per HTTP batch
 TECHPULSE_BATCH_SIZE: int = int(os.environ.get("TECHPULSE_BATCH_SIZE", "50"))
+
+#: Number of concurrent async producer tasks.
+#: The configured target rate is the TOTAL aggregate rate across all tasks.
+TECHPULSE_CONCURRENCY: int = max(1, int(os.environ.get("TECHPULSE_CONCURRENCY", "4")))
