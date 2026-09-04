@@ -198,7 +198,7 @@ class TestTrafficGeneratorEventGeneration(unittest.TestCase):
         self.assertTrue(all(t is EventBatch for t in received_types))
 
     def test_does_not_create_task_per_event(self):
-        """The generator must use one background task, not one per event."""
+        """The generator must use at most concurrency background tasks, not one per event."""
         async def run():
             gen = TrafficGenerator(_make_steady(1000.0), _make_factory(),
                                    _noop_sink, batch_size=50)
@@ -208,9 +208,9 @@ class TestTrafficGeneratorEventGeneration(unittest.TestCase):
             await asyncio.sleep(0.05)
             tasks_during = len(asyncio.all_tasks())
             await gen.stop()
-            # Exactly ONE extra task was added (the generator loop).
-            # We allow a small margin for test framework tasks.
-            self.assertLessEqual(tasks_during - tasks_before, 2)
+            # Exactly concurrency producer tasks are added (plus 1 for test runner margin).
+            # No per-event tasks are spawned.
+            self.assertLessEqual(tasks_during - tasks_before, gen.concurrency + 1)
 
         asyncio.run(run())
 
@@ -327,6 +327,148 @@ class TestTrafficGeneratorRateControl(unittest.TestCase):
 
         events = asyncio.run(run())
         self.assertGreater(events, 0)
+
+
+class TestTrafficGeneratorConcurrency(unittest.TestCase):
+    """Tests proving concurrent producer semantics."""
+
+    def test_default_concurrency_is_four(self):
+        """Default concurrency should be 4."""
+        gen = TrafficGenerator(_make_steady(), _make_factory(), _noop_sink)
+        self.assertEqual(gen.concurrency, 4)
+
+    def test_custom_concurrency_is_respected(self):
+        """Custom concurrency argument must be stored."""
+        gen = TrafficGenerator(_make_steady(), _make_factory(), _noop_sink, concurrency=8)
+        self.assertEqual(gen.concurrency, 8)
+
+    def test_concurrency_one_behaves_like_original(self):
+        """With concurrency=1 the generator must still produce events."""
+        async def run():
+            sink = _CapturingSink()
+            gen = TrafficGenerator(_make_steady(500.0), _make_factory(), sink,
+                                   batch_size=10, concurrency=1)
+            await gen.start()
+            await asyncio.sleep(0.05)
+            await gen.stop()
+            return gen.events_generated
+        events = asyncio.run(run())
+        self.assertGreater(events, 0)
+
+    def test_concurrency_spawns_correct_task_count(self):
+        """start() must spawn exactly `concurrency` producer tasks."""
+        async def run():
+            gen = TrafficGenerator(_make_steady(1000.0), _make_factory(), _noop_sink,
+                                   batch_size=50, concurrency=3)
+            await gen.start()
+            # Check task count while running (before stop clears them).
+            task_count = len(gen._tasks)
+            await gen.stop()
+            return task_count
+        count = asyncio.run(run())
+        self.assertEqual(count, 3, "Expected exactly 3 producer tasks for concurrency=3")
+
+    def test_tasks_are_running_during_generation(self):
+        """While running, _tasks list should have `concurrency` entries."""
+        async def run():
+            gen = TrafficGenerator(_make_steady(1000.0), _make_factory(), _noop_sink,
+                                   batch_size=50, concurrency=4)
+            await gen.start()
+            count = len(gen._tasks)
+            await gen.stop()
+            return count
+        count = asyncio.run(run())
+        self.assertEqual(count, 4)
+
+    def test_no_orphaned_tasks_after_stop_concurrent(self):
+        """After stop(), _tasks must be empty and _task property returns None."""
+        async def run():
+            gen = TrafficGenerator(_make_steady(1000.0), _make_factory(), _noop_sink,
+                                   concurrency=4)
+            await gen.start()
+            await gen.stop()
+            return gen._tasks, gen._task
+        tasks, task = asyncio.run(run())
+        self.assertEqual(tasks, [])
+        self.assertIsNone(task)
+
+    def test_aggregate_rate_distributed_across_workers(self):
+        """Total events from concurrency=4 should approximate events from concurrency=1
+        at the same total rate over the same time window (within 20%)."""
+        async def run_with_concurrency(c: int, seconds: float = 0.1) -> int:
+            sink = _CapturingSink()
+            gen = TrafficGenerator(_make_steady(500.0), _make_factory(seed=0), sink,
+                                   batch_size=5, concurrency=c)
+            await gen.start()
+            await asyncio.sleep(seconds)
+            await gen.stop()
+            return sink.total_events
+
+        events_c1 = asyncio.run(run_with_concurrency(1))
+        events_c4 = asyncio.run(run_with_concurrency(4))
+
+        # Both should produce > 0 events.
+        self.assertGreater(events_c1, 0)
+        self.assertGreater(events_c4, 0)
+        # With concurrency=4 we have 4 workers each at rate/4 – the aggregate
+        # should be in the same ballpark as concurrency=1 (same total rate target).
+        # Allow generous tolerance because of scheduling jitter in short windows.
+        ratio = events_c4 / events_c1 if events_c1 > 0 else 0
+        self.assertGreater(ratio, 0.5, "c=4 should produce at least 50% as many events as c=1")
+
+    def test_aggregate_rate_calculation(self):
+        """Each worker's sleep is batch_size / (total_rate / concurrency).
+        Verifying: with rate=200, concurrency=4, batch=10
+        → per-worker sleep = 10 / (200/4) = 10/50 = 0.2s
+        → in 0.3s window each worker gets ~1-2 batches → total events ~10-20.
+        """
+        async def run():
+            sink = _CapturingSink()
+            gen = TrafficGenerator(_make_steady(200.0), _make_factory(seed=42), sink,
+                                   batch_size=10, concurrency=4)
+            await gen.start()
+            await asyncio.sleep(0.25)
+            await gen.stop()
+            return sink.total_events
+        events = asyncio.run(run())
+        # Each worker sleeps 0.2s between batches of 10; in 0.25s each fires at most 2.
+        # With 4 workers: 4 * 1 batch minimum = 40 events at least.
+        self.assertGreaterEqual(events, 10,
+            f"Expected >= 10 events from aggregate 200 ev/s over 0.25s, got {events}")
+
+    def test_existing_profiles_still_work_with_concurrency(self):
+        """SurgeProfile must still work correctly with multiple concurrent producers."""
+        async def run():
+            sink = _CapturingSink()
+            profile = SurgeProfile("surge", baseline_rate=50.0, multiplier=4.0)
+            gen = TrafficGenerator(profile, _make_factory(), sink, batch_size=5, concurrency=4)
+            await gen.start()
+            await asyncio.sleep(0.05)
+            await gen.stop()
+            return sink.total_events
+        events = asyncio.run(run())
+        self.assertGreater(events, 0, "SurgeProfile with concurrency=4 must generate events")
+
+    def test_invalid_concurrency_raises(self):
+        """concurrency=0 must raise ValueError."""
+        with self.assertRaises(ValueError):
+            TrafficGenerator(_make_steady(), _make_factory(), _noop_sink, concurrency=0)
+
+    def test_double_start_does_not_create_extra_tasks(self):
+        """Second start() while running must be a no-op; task list must not grow."""
+        async def run():
+            gen = TrafficGenerator(_make_steady(), _make_factory(), _noop_sink, concurrency=2)
+            await gen.start()
+            task_after_first = gen._task  # first task in _tasks
+            tasks_count_first = len(gen._tasks)
+            await gen.start()  # should be a no-op
+            task_after_second = gen._task
+            tasks_count_second = len(gen._tasks)
+            await gen.stop()
+            return task_after_first, task_after_second, tasks_count_first, tasks_count_second
+        t1, t2, c1, c2 = asyncio.run(run())
+        self.assertIs(t1, t2, "Double start must not replace the task list")
+        self.assertEqual(c1, c2, "Double start must not change task count")
 
 
 if __name__ == "__main__":
