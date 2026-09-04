@@ -1,0 +1,5 @@
+# App-level override: ensure node_modules and dist are ignored
+# even if this app is opened as a standalone workspace root.
+node_modules/
+dist/
+.vite/
