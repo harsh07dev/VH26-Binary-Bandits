@@ -36,10 +36,14 @@ class NaiveFIFOPipeline:
         self._running = False
         self._stop_event = asyncio.Event()
 
-        # Telemetry metrics
         self.total_ingested = 0
         self.total_processed = 0
         self.total_dropped = 0
+        self.generated_by_priority: dict[Priority, int] = {
+            Priority.CRITICAL: 0,
+            Priority.NORMAL: 0,
+            Priority.BEST_EFFORT: 0,
+        }
         self.dropped_by_priority: dict[Priority, int] = {
             Priority.CRITICAL: 0,
             Priority.NORMAL: 0,
@@ -56,6 +60,9 @@ class NaiveFIFOPipeline:
             Priority.BEST_EFFORT: [],
         }
         self.peak_queue_depth = 0
+        self.time_series: list[dict[str, Any]] = []
+        self._last_enqueue_time: Optional[float] = None
+        self._drain_finished_time: Optional[float] = None
 
     async def start(self) -> None:
         """Start the worker pool."""
@@ -83,11 +90,17 @@ class NaiveFIFOPipeline:
         """
         priority = event.ensure_priority()
         event.received_at = time.time()
+        self._last_enqueue_time = event.received_at
         self.total_ingested += 1
+        self.generated_by_priority[priority] += 1
 
         current_depth = self.queue.qsize()
         if current_depth > self.peak_queue_depth:
             self.peak_queue_depth = current_depth
+
+        # Periodic time-series snapshot
+        if self.total_ingested % max(10, (self.queue_capacity // 10)) == 0:
+            self._capture_snapshot()
 
         try:
             self.queue.put_nowait(event)
@@ -97,6 +110,25 @@ class NaiveFIFOPipeline:
             self.total_dropped += 1
             self.dropped_by_priority[priority] += 1
             return False
+
+    def _capture_snapshot(self) -> None:
+        """Record periodic time-series snapshot."""
+        now = time.time()
+        all_lats: list[float] = []
+        for l_list in self.latencies_ms.values():
+            all_lats.extend(l_list)
+        crit_lats = self.latencies_ms[Priority.CRITICAL]
+
+        from benchmark.baseline_runner import _calculate_percentile
+        self.time_series.append({
+            "timestamp": now,
+            "processed": self.total_processed,
+            "dropped": self.total_dropped,
+            "queue_depth": self.queue.qsize(),
+            "p95_latency_ms": round(_calculate_percentile(all_lats, 95), 2),
+            "critical_p95_latency_ms": round(_calculate_percentile(crit_lats, 95), 2),
+            "pressure": min(1.0, round(self.queue.qsize() / max(1, self.queue_capacity), 3)),
+        })
 
     async def _worker_loop(self, worker_id: int) -> None:
         """Worker loop continuously popping from FIFO queue."""

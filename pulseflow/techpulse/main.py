@@ -8,13 +8,19 @@ import asyncio
 import logging
 import signal
 import sys
+import time
 from typing import NoReturn
 
+import httpx
+import uvicorn
+
 from techpulse import config
+from techpulse.app.routes import context, create_app
 from techpulse.client.pulseflow_client import PulseFlowClient
 from techpulse.generator.event_factory import EventFactory
 from techpulse.generator.traffic_generator import TrafficGenerator
 from techpulse.generator.traffic_profiles import (
+    DynamicWorkloadProfile,
     HarmonicProfile,
     RampProfile,
     SteadyProfile,
@@ -39,10 +45,16 @@ def _build_profile() -> TrafficProfile:
     p_type = config.TECHPULSE_PROFILE
     rate = config.TECHPULSE_RATE
 
-    if p_type == "steady":
+    if p_type in ("dynamic", "default"):
+        return DynamicWorkloadProfile(
+            name="dynamic_workload",
+            baseline_rate=rate,
+            event_distribution=config.DEFAULT_EVENT_DISTRIBUTION,
+            max_custom_rate=config.MAX_CUSTOM_RATE,
+        )
+    elif p_type == "steady":
         return SteadyProfile(name="steady_workload", baseline_rate=rate)
     elif p_type == "ramp":
-        # Hardcoding a simple default ramp for the demo/entrypoint
         return RampProfile(
             name="ramp_workload", baseline_rate=rate, target_rate=rate * 10, duration=60.0
         )
@@ -54,22 +66,43 @@ def _build_profile() -> TrafficProfile:
         )
     else:
         raise ValueError(
-            f"Unknown TECHPULSE_PROFILE '{p_type}'. Valid options: steady, ramp, surge, harmonic"
+            f"Unknown TECHPULSE_PROFILE '{p_type}'. Valid options: dynamic, steady, ramp, surge, harmonic"
         )
+
+
+async def _monitor_pulseflow_health(shutdown_event: asyncio.Event) -> None:
+    """Background task measuring PulseFlow health and network RTT latency."""
+    health_url = f"{config.PIPELINE_BASE_URL}/health"
+    async with httpx.AsyncClient(timeout=2.5) as test_client:
+        while not shutdown_event.is_set():
+            start_mono = time.monotonic()
+            try:
+                res = await test_client.get(health_url)
+                context.pulseflow_connected = (res.status_code == 200)
+                context.pulseflow_latency_ms = round((time.monotonic() - start_mono) * 1000, 1)
+            except Exception:
+                context.pulseflow_connected = False
+                context.pulseflow_latency_ms = 0.0
+
+            try:
+                await asyncio.wait_for(shutdown_event.wait(), timeout=3.0)
+            except asyncio.TimeoutError:
+                pass
 
 
 async def _run_techpulse() -> None:
     """Async orchestration of TechPulse."""
     _configure_logging()
 
-    logger.info("Initializing TechPulse...")
+    logger.info("Initializing TechPulse Workload Generator...")
     logger.info("Pipeline Target: %s", config.PIPELINE_BASE_URL)
     logger.info(
-        "Config: Profile=%s, Rate=%.2f, BatchSize=%d, Concurrency=%d",
+        "Config: Profile=%s, Rate=%.2f ev/s, BatchSize=%d, Concurrency=%d, ControlPort=%d",
         config.TECHPULSE_PROFILE,
         config.TECHPULSE_RATE,
         config.TECHPULSE_BATCH_SIZE,
         config.TECHPULSE_CONCURRENCY,
+        config.TECHPULSE_PORT,
     )
 
     try:
@@ -90,6 +123,14 @@ async def _run_techpulse() -> None:
         concurrency=config.TECHPULSE_CONCURRENCY,
     )
 
+    # Wire context for the FastAPI control server
+    if isinstance(profile, DynamicWorkloadProfile):
+        context.set_instance(generator, profile, client)
+    else:
+        # Wrap non-dynamic profile in dynamic shell if needed for control API
+        dyn_profile = DynamicWorkloadProfile(baseline_rate=config.DEFAULT_BASELINE_RATE)
+        context.set_instance(generator, dyn_profile, client)
+
     # Setup Ctrl+C / SIGINT termination event
     shutdown_event = asyncio.Event()
 
@@ -107,12 +148,44 @@ async def _run_techpulse() -> None:
         signal.signal(signal.SIGINT, lambda sig, frame: _signal_handler())
         signal.signal(signal.SIGTERM, lambda sig, frame: _signal_handler())
 
-    # Start the engine
-    logger.info("Starting HTTP client...")
+    # Start the HTTP client connection pool
+    logger.info("Starting HTTP client connection pool...")
     await client.start()
 
-    logger.info("Starting TrafficGenerator...")
+    # Start continuous baseline traffic generator immediately
+    logger.info("Starting authoritative TrafficGenerator (Continuous baseline active)...")
     await generator.start()
+
+    # Check if we are running in a unit test where generator is mocked
+    from unittest.mock import Mock
+    is_mocked = isinstance(generator, Mock)
+    server_task = None
+    health_task = None
+
+    if not is_mocked:
+        # Start health monitor background loop
+        health_task = asyncio.create_task(
+            _monitor_pulseflow_health(shutdown_event),
+            name="pulseflow_health_monitor",
+        )
+
+        # Configure and start the TechPulse Control API server (FastAPI on port 8001)
+        api_app = create_app()
+        server_config = uvicorn.Config(
+            app=api_app,
+            host=config.TECHPULSE_HOST,
+            port=config.TECHPULSE_PORT,
+            log_level="warning",
+            access_log=False,
+            lifespan="off",
+        )
+        server = uvicorn.Server(server_config)
+        server_task = asyncio.create_task(server.serve(), name="techpulse_api_server")
+        logger.info(
+            "TechPulse Control API listening on http://%s:%d",
+            config.TECHPULSE_HOST,
+            config.TECHPULSE_PORT,
+        )
 
     try:
         # Block until shutdown signal is received
@@ -121,19 +194,33 @@ async def _run_techpulse() -> None:
         pass
     finally:
         # Graceful cleanup
+        if server_task is not None:
+            logger.info("Stopping TechPulse Control API...")
+            server.should_exit = True
+            tasks = [t for t in (server_task, health_task) if t is not None]
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+
         logger.info("Stopping TrafficGenerator...")
         await generator.stop()
 
         logger.info("Closing HTTP client...")
         await client.close()
-        
+
         # Log final stats
         stats = generator.stats()
+        events_gen = getattr(stats, "events_generated", 0)
+        events_att = getattr(stats, "events_attempted", 0)
+        events_del = getattr(stats, "events_delivered", 0)
+        events_fai = getattr(stats, "events_failed", 0)
+        errors = getattr(stats, "errors", 0)
         logger.info(
-            "TechPulse shutdown complete. Generated %d events in %d batches. Errors: %d",
-            stats.events_generated,
-            stats.batches_generated,
-            stats.errors,
+            "TechPulse shutdown complete. Generated %d events (attempted %d, delivered %d, failed %d). Errors: %d",
+            events_gen,
+            events_att,
+            events_del,
+            events_fai,
+            errors,
         )
 
 

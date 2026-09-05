@@ -8,7 +8,7 @@ export default function PageHeader({
   spikesInjected = 0,
   spikesTotal = 50,
   boostedEvents = '0',
-  egressRate = '8,400',
+  egressRate = '100',
   isSurging = false,
   isPaused = false
 }) {
@@ -33,15 +33,13 @@ export default function PageHeader({
 
       {/* Stat pills row */}
       <div className="page-header-pills" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-        {/* Pill 1: Spikes Injected */}
+        {/* Pill 1: Spikes Triggered */}
         <div className="stat-pill" id="pill-spikes-injected">
-          <span className="stat-pill-label">Spikes Injected</span>
+          <span className="stat-pill-label">Spikes Triggered</span>
           <span className="stat-pill-divider" />
-          <span className="stat-pill-value font-mono">
+          <span className="stat-pill-value font-mono" style={{ color: isSurging ? 'var(--color-error)' : 'var(--color-text-primary)' }}>
             {spikesInjected}
-            <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>
-              {' '}/ {spikesTotal}
-            </span>
+            {isSurging && <span style={{ fontSize: 10, color: 'var(--color-error)', marginLeft: 4 }}>ACTIVE</span>}
           </span>
         </div>
 

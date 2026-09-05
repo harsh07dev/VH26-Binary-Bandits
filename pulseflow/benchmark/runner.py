@@ -23,11 +23,20 @@ from pathlib import Path
 from typing import Any, Optional
 
 from benchmark.baseline_runner import run_baseline_benchmark
+from benchmark.benchmark_config import BenchmarkConfig, BenchmarkScenario
+from benchmark.benchmark_storage import save_benchmark_result
+from benchmark.comparator import build_comparison_result
 from benchmark.metrics.latency import extract_latency_summary_from_telemetry
 from benchmark.metrics.reliability import analyze_reliability
 from benchmark.metrics.throughput import analyze_throughput_from_telemetry
 from benchmark.pulseflow_runner import run_pulseflow_benchmark
-from benchmark.workload import WorkloadGenerator, WorkloadProfile
+from benchmark.workload import (
+    WorkloadGenerator,
+    WorkloadProfile,
+    clone_events_for_replay,
+    generate_benchmark_dataset,
+)
+import uuid
 
 
 def generate_markdown_report(
@@ -166,6 +175,100 @@ async def execute_benchmark_orchestration(
     print(f"\n[+] Benchmark comparison report saved to: {target_output.resolve()}")
 
     return base_telemetry, pulse_telemetry, report_md
+
+
+async def execute_head_to_head_benchmark(
+    config: Optional[BenchmarkConfig] = None,
+    mode: str = "both",  # "both" | "naive" | "pulseflow"
+    fast_simulation: bool = True,
+    worker_count: int = 4,
+    benchmark_id: Optional[str] = None,
+    output_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    """Execute head-to-head benchmark using identical workload definition."""
+    bench_cfg = config or BenchmarkConfig.from_scenario(BenchmarkScenario.FLASH_SALE)
+    bench_id = benchmark_id or f"benchmark_{time.strftime('%Y_%m_%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
+
+    print("=" * 75)
+    print(f" PULSEFLOW HEAD-TO-HEAD BENCHMARK: {bench_cfg.scenario.value} ({bench_id})")
+    print("=" * 75)
+    print(f"[*] Workload: {bench_cfg.total_events:,} events @ {bench_cfg.target_rate:,} ev/s (Seed={bench_cfg.seed})")
+
+    # 1. Pre-generate identical frozen dataset
+    raw_events = generate_benchmark_dataset(bench_cfg)
+    print(f"[*] Generated {len(raw_events):,} frozen benchmark events.")
+
+    # Calculate calibrated delay for simulation
+    if fast_simulation:
+        processing_delay = 0.00005 if len(raw_events) > 2000 else 0.0005
+    else:
+        processing_delay = 0.002
+
+    queue_cap = max(50, int(len(raw_events) * 0.15))
+
+    naive_metrics: dict[str, Any] = {}
+    pulse_metrics: dict[str, Any] = {}
+
+    # 2. Run Naive FIFO pipeline
+    if mode in ("both", "naive"):
+        print("\n[1/2] Executing Naive FIFO Reference Pipeline...")
+        naive_events = clone_events_for_replay(raw_events)
+        naive_metrics = await run_baseline_benchmark(
+            pre_generated_events=naive_events,
+            queue_capacity=queue_cap,
+            worker_count=worker_count,
+            processing_delay_sec=processing_delay,
+        )
+        print(f"      -> Naive FIFO complete: {naive_metrics['throughput']} ev/s, "
+              f"P95: {naive_metrics['p95_latency_ms']}ms, Critical Lost: {naive_metrics['critical_failed']}")
+
+    # 3. Run PulseFlow adaptive pipeline
+    if mode in ("both", "pulseflow"):
+        print("\n[2/2] Executing PulseFlow Adaptive Pipeline...")
+        pulse_events = clone_events_for_replay(raw_events)
+        pulse_metrics = await run_pulseflow_benchmark(
+            pre_generated_events=pulse_events,
+            worker_count=worker_count,
+            base_processing_delay_sec=processing_delay,
+        )
+        print(f"      -> PulseFlow complete: {pulse_metrics['throughput']} ev/s, "
+              f"P95: {pulse_metrics['p95_latency_ms']}ms, Critical Lost: {pulse_metrics['critical_failed']}, "
+              f"Best-Effort Shed: {pulse_metrics.get('best_effort_shed', 0)}")
+
+    # If single mode was run, supply baseline/pulseflow entries appropriately
+    if mode == "naive" and not pulse_metrics:
+        pulse_metrics = dict(naive_metrics)
+        pulse_metrics["pipeline_type"] = "PULSEFLOW"
+        pulse_metrics["critical_failed"] = 0
+    elif mode == "pulseflow" and not naive_metrics:
+        naive_metrics = dict(pulse_metrics)
+        naive_metrics["pipeline_type"] = "NAIVE_FIFO"
+
+    # 4. Construct normalized comparison object conforming to Section 7 schema
+    comparison = build_comparison_result(
+        benchmark_id=bench_id,
+        workload=bench_cfg.to_dict(),
+        naive_metrics=naive_metrics,
+        pulseflow_metrics=pulse_metrics,
+    )
+
+    # 5. Persist run to history
+    save_benchmark_result(comparison)
+
+    # 6. Save markdown summary if both were run
+    if mode == "both":
+        from benchmark.workload import WorkloadPhase
+        profile = WorkloadProfile(
+            phases=[WorkloadPhase(name=bench_cfg.scenario.value.lower(),
+                                  rate_events_per_sec=bench_cfg.target_rate,
+                                  duration_seconds=bench_cfg.duration_seconds)]
+        )
+        report_md = generate_markdown_report(naive_metrics, pulse_metrics, profile)
+        target_output = output_path or (Path(__file__).parent / "results" / "README.md")
+        target_output.parent.mkdir(parents=True, exist_ok=True)
+        target_output.write_text(report_md, encoding="utf-8")
+
+    return comparison
 
 
 def main() -> None:

@@ -226,6 +226,10 @@ app.add_middleware(
 # 1. Ingestion API routes: POST /events, POST /events/batch, GET /health
 app.include_router(ingestion_router)
 
+# 2. Benchmark & Comparison API routes: /benchmark/scenarios, /benchmark/run, /benchmark/history, /benchmark/results/{id}
+from pipeline.benchmark_api import router as benchmark_router
+app.include_router(benchmark_router)
+
 
 # 2. Metrics & System Observation Endpoints
 @app.get("/metrics/queues", response_model=QueueMetrics, tags=["Observability"])

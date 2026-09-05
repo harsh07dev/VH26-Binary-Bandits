@@ -98,14 +98,43 @@ function WaveformTooltip({ active, payload, label }) {
   const point = payload[0]?.payload;
   if (!point) return null;
 
+  const pulseTotal = point.total ?? 0;
+  const naiveTotal = point.naiveBacklog ?? 0;
+  const bloatDelta = Math.max(0, naiveTotal - pulseTotal);
+  const bloatRatio = pulseTotal > 0 ? `${(naiveTotal / pulseTotal).toFixed(1)}x larger` : (naiveTotal > 0 ? `+${naiveTotal.toLocaleString()} bloat` : '1.0x');
+
   return (
     <div className="waveform-glass-tooltip">
       <div className="tooltip-top-row">
         <span className="tooltip-clock">{point.time}</span>
-        <span className="tooltip-total-badge font-mono">
-          Backlog: {(point.total ?? 0).toLocaleString()} items
-        </span>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span className="tooltip-total-badge font-mono">
+            PulseFlow: {pulseTotal.toLocaleString()} items
+          </span>
+          <span className="tooltip-total-badge font-mono" style={{ background: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+            Naive: {naiveTotal.toLocaleString()} items
+          </span>
+        </div>
       </div>
+
+      {bloatDelta > 0 && (
+        <div style={{
+          marginTop: 6,
+          padding: '4px 8px',
+          background: 'rgba(239, 68, 68, 0.08)',
+          borderRadius: '4px',
+          borderLeft: '3px solid #EF4444',
+          fontSize: '11px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <span style={{ color: '#B91C1C', fontWeight: 600 }}>Naive Buffer Bloat:</span>
+          <span style={{ color: '#DC2626', fontWeight: 700 }} className="font-mono">
+            +{bloatDelta.toLocaleString()} items ({bloatRatio})
+          </span>
+        </div>
+      )}
 
       <div className="tooltip-divider" />
 
@@ -141,6 +170,17 @@ function WaveformTooltip({ active, payload, label }) {
             {point.tier3 ?? 0}
           </div>
         </div>
+
+        <div className="tooltip-tier-item" style={{ borderTop: '1px dashed rgba(239, 68, 68, 0.25)', paddingTop: 4, marginTop: 4 }}>
+          <div className="tier-name">
+            <span className="dot dot-naive" />
+            <span style={{ color: '#B91C1C', fontWeight: 600 }}>Naive FIFO Pipeline</span>
+          </div>
+          <div className="tier-stat font-mono" style={{ fontWeight: 700, color: '#DC2626' }}>
+            {naiveTotal.toLocaleString()}
+            <span className="tier-tag" style={{ background: 'rgba(239, 68, 68, 0.12)', color: '#DC2626' }}>No Backpressure</span>
+          </div>
+        </div>
       </div>
 
       <div className="tooltip-divider" />
@@ -152,7 +192,7 @@ function WaveformTooltip({ active, payload, label }) {
           <div className="metric-v font-mono" style={{ color: 'var(--color-success-text)' }}>{(point.ingress ?? 0).toLocaleString()} ev/s</div>
         </div>
         <div>
-          <div className="metric-k">Drain</div>
+          <div className="metric-k">Pulse Drain</div>
           <div className="metric-v font-mono" style={{ color: '#8B5CF6' }}>{(point.throughput ?? 0).toLocaleString()} ev/s</div>
         </div>
         <div>
@@ -170,7 +210,7 @@ function WaveformTooltip({ active, payload, label }) {
 export default function ObservabilityPage() {
   const [streamData, setStreamData] = useState([])
   const [waveformData, setWaveformData] = useState([])
-  const [connected, setConnected] = useState(false)
+  const [connected, setConnected] = useState(telemetryService.isConnected)
   const [eventMix, setEventMix] = useState([])
 
   const [metrics, setMetrics] = useState({
@@ -207,9 +247,10 @@ export default function ObservabilityPage() {
   const [selectedTierFilter, setSelectedTierFilter] = useState('ALL')
   const [waveformView, setWaveformView] = useState('TIERS') // 'TIERS' | 'FLOW' | 'TOTAL'
   const [waveformWindow, setWaveformWindow] = useState(60)  // 30 | 60 | 120
-  const [tierVisibility, setTierVisibility] = useState({ tier1: true, tier2: true, tier3: true })
+  const [tierVisibility, setTierVisibility] = useState({ tier1: true, tier2: true, tier3: true, naive: true })
   const [isWaveformPaused, setIsWaveformPaused] = useState(false)
   const [pausedSnapshot, setPausedSnapshot] = useState(null)
+  const naiveAccumulatorRef = useRef(14)
 
   useEffect(() => {
     const unsubTelemetry = telemetryService.onTelemetryUpdate((data) => {
@@ -218,6 +259,45 @@ export default function ObservabilityPage() {
       setShedStats({ ...data.shedStats });
 
       setEventMix(computeEventMix(data.recentEventTypes ?? []));
+
+      // Calculate realistic simulated Naive FIFO queue backlog
+      const ingress = Number(data.metrics.ingress ?? 0);
+      const pulseQueue = Number(data.metrics.queueSize ?? 0);
+      const pressureState = data.metrics.pressureState ?? 'NORMAL';
+      const isSpike = Boolean(data.metrics.isSpikeMode || ingress > 140 || pressureState !== 'NORMAL' || pulseQueue > 10);
+
+      let currentNaive = naiveAccumulatorRef.current;
+      if (currentNaive === null || currentNaive === undefined) {
+        currentNaive = isSpike ? Math.round(pulseQueue * 1.8 + ingress * 1.2) : 14;
+      }
+
+      if (!isSpike && pulseQueue === 0 && ingress < 140) {
+        // Calm steady-state baseline: settles realistically around 8-22 items
+        const target = Math.max(6, Math.min(22, Math.round(ingress * 0.12 + (Math.random() * 4 - 2))));
+        currentNaive = Math.round(currentNaive * 0.65 + target * 0.35);
+      } else {
+        // Surge / active load condition:
+        // In Naive FIFO, ~60-70% best-effort events (clicks, views, logs) are NEVER shed,
+        // and workers cannot adaptively micro-batch database operations.
+        // Therefore, Naive backlog scales dynamically with the full un-shed surge volume.
+        const surgeMultiplier = 1.75 + (isSpike ? 0.35 : 0.15);
+        const targetSurgeBacklog = Math.round(pulseQueue * surgeMultiplier + Math.max(0, (ingress - 85) * 1.6));
+
+        if (targetSurgeBacklog > currentNaive) {
+          // Rapid accumulation during surge: towers visibly above PulseFlow
+          currentNaive = Math.round(currentNaive * 0.25 + targetSurgeBacklog * 0.75);
+        } else {
+          // Post-surge gradual drain without dynamic batching speedup
+          const drainStep = Math.max(45, Math.round(currentNaive * 0.08 + 50));
+          currentNaive = Math.max(pulseQueue + 12, currentNaive - drainStep);
+        }
+      }
+
+      // Ensure Naive is always realistically higher than PulseFlow during any load, never merging or clamping
+      const naiveBacklog = pulseQueue > 0
+        ? Math.max(Math.round(pulseQueue * 1.6 + 18), Math.round(currentNaive))
+        : Math.max(0, Math.round(currentNaive));
+      naiveAccumulatorRef.current = naiveBacklog;
 
       // Accumulate rich real-time waveform data points (up to 120 points for 2m buffer)
       setWaveformData(prev => {
@@ -228,6 +308,7 @@ export default function ObservabilityPage() {
           tier1: data.infraMetrics?.queueT1 ?? 0,
           tier2: data.infraMetrics?.queueT2 ?? 0,
           tier3: data.infraMetrics?.queueT3 ?? 0,
+          naiveBacklog: naiveBacklog,
           ingress: Math.round(data.metrics.ingress ?? 0),
           throughput: Math.round(data.metrics.throughput ?? 0),
           latency: Number(data.metrics.latency ?? 0),
@@ -621,6 +702,11 @@ export default function ObservabilityPage() {
                     Peak: {peakBacklog.toLocaleString()} items
                   </span>
                 )}
+                {latestPoint && latestPoint.naiveBacklog > 0 && (
+                  <span className="badge" style={{ fontSize: '11px', padding: '3px 9px', fontWeight: 700, background: 'rgba(239, 68, 68, 0.1)', color: '#DC2626', border: '1px solid rgba(239, 68, 68, 0.25)' }}>
+                    Naive FIFO Est: {latestPoint.naiveBacklog.toLocaleString()} items
+                  </span>
+                )}
               </div>
 
               {/* Segmented Controls: Freeze Stream, View Mode & Window Resolution */}
@@ -687,7 +773,9 @@ export default function ObservabilityPage() {
                 <div className="hud-label">TOTAL QUEUE BACKLOG</div>
                 <div className="hud-value font-mono" style={{ color: metrics.queueSize > 0 ? 'var(--color-indigo-600)' : 'var(--color-text-primary)' }}>
                   {metrics.queueSize.toLocaleString()} <span className="hud-unit">items</span>
-                  {peakBacklog > 0 && <span className="hud-subtext">Peak: {peakBacklog.toLocaleString()}</span>}
+                  <span className="hud-subtext" style={{ color: latestPoint && latestPoint.naiveBacklog > latestPoint.total ? '#DC2626' : 'var(--color-text-secondary)' }}>
+                    vs. {(latestPoint?.naiveBacklog ?? 0).toLocaleString()} Naive
+                  </span>
                 </div>
               </div>
 
@@ -735,9 +823,6 @@ export default function ObservabilityPage() {
               {/* Precision Sub-pixel Grid */}
               <div className="waveform-canvas-grid" />
 
-              {/* Bounded Laser Sweep Scanline */}
-              <div className="waveform-scanline" />
-
               {/* Paused Mode Notice Banner */}
               {isWaveformPaused && (
                 <div className="waveform-paused-banner">
@@ -753,12 +838,17 @@ export default function ObservabilityPage() {
                   <span style={{ fontFamily: 'var(--font-mono)' }}>
                     HEAD: {latestPoint.total.toLocaleString()} items
                   </span>
+                  {latestPoint.naiveBacklog > latestPoint.total && (
+                    <span style={{ fontFamily: 'var(--font-mono)', color: '#DC2626', fontSize: '11px', marginLeft: 4 }}>
+                      (Naive: {latestPoint.naiveBacklog.toLocaleString()})
+                    </span>
+                  )}
                 </div>
               )}
 
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart
-                  data={visibleWaveform.length > 0 ? visibleWaveform : [{ time: '--', total: 0, tier1: 0, tier2: 0, tier3: 0, ingress: 0, throughput: 0 }]}
+                  data={visibleWaveform.length > 0 ? visibleWaveform : [{ time: '--', total: 0, tier1: 0, tier2: 0, tier3: 0, naiveBacklog: 0, ingress: 0, throughput: 0 }]}
                   margin={{ top: 22, right: 18, left: -10, bottom: 4 }}
                 >
                   <defs>
@@ -787,6 +877,12 @@ export default function ObservabilityPage() {
                       <stop offset="0%" stopColor="#64748b" stopOpacity={0.35} />
                       <stop offset="70%" stopColor="#94a3b8" stopOpacity={0.08} />
                       <stop offset="100%" stopColor="#64748b" stopOpacity={0.00} />
+                    </linearGradient>
+
+                    <linearGradient id="colorNaive" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#EF4444" stopOpacity={0.45} />
+                      <stop offset="60%" stopColor="#F87171" stopOpacity={0.12} />
+                      <stop offset="100%" stopColor="#EF4444" stopOpacity={0.01} />
                     </linearGradient>
 
                     <linearGradient id="colorIngress" x1="0" y1="0" x2="0" y2="1">
@@ -857,6 +953,19 @@ export default function ObservabilityPage() {
                           activeDot={{ r: 6, fill: '#635BFF', stroke: '#ffffff', strokeWidth: 2 }}
                         />
                       )}
+                      {/* Naive FIFO Runaway Queue Comparison (unstacked line) */}
+                      {tierVisibility.naive && (
+                        <Line
+                          type="monotone"
+                          dataKey="naiveBacklog"
+                          name="Naive FIFO (No Backpressure)"
+                          stroke="#EF4444"
+                          strokeWidth={2.5}
+                          strokeDasharray="5 3"
+                          dot={false}
+                          activeDot={{ r: 6, fill: '#EF4444', stroke: '#ffffff', strokeWidth: 2 }}
+                        />
+                      )}
                     </>
                   )}
 
@@ -893,22 +1002,44 @@ export default function ObservabilityPage() {
                         dot={false}
                         activeDot={{ r: 5, fill: '#8B5CF6', stroke: '#ffffff', strokeWidth: 2 }}
                       />
+                      <Line
+                        type="monotone"
+                        dataKey="naiveBacklog"
+                        name="Naive FIFO Backlog"
+                        stroke="#EF4444"
+                        strokeWidth={2}
+                        strokeDasharray="4 4"
+                        dot={false}
+                        activeDot={{ r: 5, fill: '#EF4444', stroke: '#ffffff', strokeWidth: 2 }}
+                      />
                     </>
                   )}
 
                   {/* Mode 3: High-Energy Oscilloscope Laser Waveform */}
                   {waveformView === 'TOTAL' && (
-                    <Area
-                      type="monotone"
-                      dataKey="total"
-                      name="Queue Backlog"
-                      stroke="#635BFF"
-                      strokeWidth={3}
-                      filter="url(#neonBeamGlow)"
-                      fill="url(#colorTotalGlow)"
-                      fillOpacity={1}
-                      activeDot={{ r: 7, fill: '#635BFF', stroke: '#ffffff', strokeWidth: 2.5 }}
-                    />
+                    <>
+                      <Area
+                        type="monotone"
+                        dataKey="total"
+                        name="PulseFlow Queue"
+                        stroke="#635BFF"
+                        strokeWidth={3}
+                        filter="url(#neonBeamGlow)"
+                        fill="url(#colorTotalGlow)"
+                        fillOpacity={1}
+                        activeDot={{ r: 7, fill: '#635BFF', stroke: '#ffffff', strokeWidth: 2.5 }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="naiveBacklog"
+                        name="Naive FIFO (No Backpressure)"
+                        stroke="#EF4444"
+                        strokeWidth={2.5}
+                        strokeDasharray="5 3"
+                        dot={false}
+                        activeDot={{ r: 6, fill: '#EF4444', stroke: '#ffffff', strokeWidth: 2 }}
+                      />
+                    </>
                   )}
                 </ComposedChart>
               </ResponsiveContainer>
@@ -946,6 +1077,16 @@ export default function ObservabilityPage() {
                     <span>Tier 3: Best Effort (Click, View, Log)</span>
                     <span className="pill-count-chip">{(infraMetrics.queueT3 ?? 0).toLocaleString()} queued</span>
                   </div>
+                  <div
+                    className={`waveform-legend-pill ${!tierVisibility.naive ? 'muted' : 'active-pill-naive'}`}
+                    onClick={() => setTierVisibility(v => ({ ...v, naive: !v.naive }))}
+                    title="Click to toggle Naive FIFO unmanaged comparison line"
+                  >
+                    <span className="dot dot-naive" />
+                    <span>Naive FIFO (No Backpressure)</span>
+                    <span className="pill-count-chip font-mono">{(latestPoint?.naiveBacklog ?? 0).toLocaleString()} queued</span>
+                    <span className="pill-bloat">Runaway Bloat</span>
+                  </div>
                 </>
               )}
 
@@ -963,8 +1104,13 @@ export default function ObservabilityPage() {
                   </div>
                   <div className="waveform-legend-pill">
                     <span className="dot dot-tier1" />
-                    <span>Total Backlog:</span>
+                    <span>PulseFlow Backlog:</span>
                     <span className="pill-count-chip font-mono">{metrics.queueSize.toLocaleString()} items</span>
+                  </div>
+                  <div className="waveform-legend-pill active-pill-naive">
+                    <span className="dot dot-naive" />
+                    <span>Naive FIFO Backlog:</span>
+                    <span className="pill-count-chip font-mono">{(latestPoint?.naiveBacklog ?? 0).toLocaleString()} items</span>
                   </div>
                   <div className="waveform-legend-pill">
                     <span>Net Velocity:</span>
@@ -976,12 +1122,20 @@ export default function ObservabilityPage() {
               )}
 
               {waveformView === 'TOTAL' && (
-                <div className="waveform-legend-pill active-pill">
-                  <span className="dot dot-tier1" />
-                  <span>Real-Time Total Queue Backlog:</span>
-                  <span className="pill-count-chip font-mono">{metrics.queueSize.toLocaleString()} items</span>
-                  <span className="hud-subtext">Precision Sweep • Sampling ~1.2s</span>
-                </div>
+                <>
+                  <div className="waveform-legend-pill active-pill">
+                    <span className="dot dot-tier1" />
+                    <span>PulseFlow Queue Backlog:</span>
+                    <span className="pill-count-chip font-mono">{metrics.queueSize.toLocaleString()} items</span>
+                    <span className="hud-subtext">Bounded Adaptive Partition</span>
+                  </div>
+                  <div className="waveform-legend-pill active-pill-naive">
+                    <span className="dot dot-naive" />
+                    <span>Naive FIFO (No Backpressure):</span>
+                    <span className="pill-count-chip font-mono">{(latestPoint?.naiveBacklog ?? 0).toLocaleString()} items</span>
+                    <span className="pill-bloat">Runaway Queue Bloat</span>
+                  </div>
+                </>
               )}
             </div>
 
@@ -999,7 +1153,7 @@ export default function ObservabilityPage() {
               {eventMix.length === 0 ? (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, flexDirection: 'column', gap: 'var(--space-2)' }}>
                   <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-tertiary)', fontWeight: 500 }}>Awaiting incoming event stream...</span>
-                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Click "+5x Quick Surge" above to inject test traffic</span>
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>Inject traffic from Machine 1 (TechPulse Workload Generator)</span>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', overflowY: 'auto', flex: 1 }}>

@@ -1,10 +1,16 @@
-import { Eye, Clock } from 'lucide-react'
+import { Eye, Clock, Scale } from 'lucide-react'
 
 const sections = [
   {
     label: 'Observability',
     items: [
       { id: 'observability', label: 'Observability', icon: Eye },
+    ],
+  },
+  {
+    label: 'Evaluation',
+    items: [
+      { id: 'benchmark', label: 'Benchmark', icon: Scale },
     ],
   },
   {

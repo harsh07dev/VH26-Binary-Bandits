@@ -9,6 +9,7 @@ import { telemetryClient } from '../../api/telemetry.js'
  */
 export default function Topbar() {
   const [bridgeStatus, setBridgeStatus] = useState({
+    generatorConnected: false,
     isConnected: true,
     latencyMs: 1.2,
   })
@@ -16,7 +17,8 @@ export default function Topbar() {
   useEffect(() => {
     const unsub = telemetryClient.subscribe(state => {
       setBridgeStatus({
-        isConnected: state.isConnected,
+        generatorConnected: state.generatorConnected,
+        isConnected: state.pulseflowConnected !== undefined ? state.pulseflowConnected : state.isConnected,
         latencyMs: state.latencyMs,
       })
     })
@@ -32,7 +34,7 @@ export default function Topbar() {
             Machine 1
           </span>
           <span>/</span>
-          <span style={{ color: 'var(--color-text-primary)' }}>Synthetic Workload &amp; Surge Generator</span>
+          <span style={{ color: 'var(--color-text-primary)' }}>Authoritative Workload Generator</span>
         </div>
 
         <div style={{ width: 1, height: 14, background: 'var(--color-border)' }} />
@@ -47,6 +49,18 @@ export default function Topbar() {
 
       {/* ── Right: Bridge Status & Telemetry Link ─────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+        {/* Python Generator Engine Pill */}
+        <div
+          className={`status-pill ${bridgeStatus.generatorConnected ? 'status-pill-online' : 'status-pill-warning'}`}
+          style={{ fontSize: '11px', padding: '3px 9px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          title="Machine 1 Python Traffic Generator (:8001)"
+        >
+          <span className={`status-dot status-dot-sm ${bridgeStatus.generatorConnected ? 'status-dot-live-green' : 'status-dot-warning'}`} />
+          <span style={{ fontWeight: 700 }}>
+            {bridgeStatus.generatorConnected ? 'PYTHON ENGINE ACTIVE' : 'ENGINE STANDBY'}
+          </span>
+        </div>
+
         {/* Live Bridge Ping Pill */}
         <div
           className={`status-pill ${bridgeStatus.isConnected ? 'status-pill-online' : 'status-pill-error'}`}
@@ -55,7 +69,7 @@ export default function Topbar() {
         >
           <span className={`status-dot status-dot-sm ${bridgeStatus.isConnected ? 'status-dot-live-green' : 'status-dot-live-red'}`} />
           <span style={{ fontWeight: 700 }}>
-            {bridgeStatus.isConnected ? 'BRIDGE ONLINE' : 'BRIDGE DISCONNECTED'}
+            {bridgeStatus.isConnected ? 'PULSEFLOW CONNECTED' : 'PULSEFLOW OFFLINE'}
           </span>
           <span style={{ color: 'var(--color-text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>
             ({bridgeStatus.latencyMs}ms)

@@ -19,8 +19,9 @@ subtracts it from its sleep interval so that RTT does not erode throughput.
 import asyncio
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass
-from typing import Awaitable, Callable, List, Optional
+from typing import Awaitable, Callable, Deque, List, Optional, Tuple
 
 from contracts.events import EventBatch
 from techpulse.generator.event_factory import EventFactory
@@ -38,13 +39,24 @@ _MIN_SLEEP_S: float = 0.001   # 1 ms
 
 @dataclass
 class GeneratorStats:
-    """Snapshot of TrafficGenerator runtime statistics."""
+    """Snapshot of TrafficGenerator runtime statistics with three-tier event tracking."""
     running: bool = False
     events_generated: int = 0
+    events_attempted: int = 0
+    events_delivered: int = 0
+    events_failed: int = 0
     batches_generated: int = 0
+    batches_attempted: int = 0
+    batches_delivered: int = 0
     errors: int = 0
     current_rate: float = 0.0
+    measured_rate: float = 0.0
     elapsed_time: float = 0.0
+    state: str = "BASELINE"
+    multiplier: float = 1.0
+    spike_mode: str = "NONE"
+    spike_label: str = "Steady Baseline"
+    remaining_seconds: Optional[float] = None
 
 
 class TrafficGenerator:
@@ -108,15 +120,28 @@ class TrafficGenerator:
         self._tasks: List[asyncio.Task] = []
         self._start_mono: Optional[float] = None
 
-        # Statistics counters (updated from multiple tasks; GIL keeps increments atomic).
+        # Statistics counters: three distinct quantities (Generated -> Attempted -> Delivered / Failed)
         self._events_generated: int = 0
+        self._events_attempted: int = 0
+        self._events_delivered: int = 0
+        self._events_failed: int = 0
         self._batches_generated: int = 0
+        self._batches_attempted: int = 0
+        self._batches_delivered: int = 0
         self._errors: int = 0
         self._current_rate: float = 0.0
+
+        # Sliding window history for measured egress velocity: (monotonic_ts, count)
+        self._delivery_history: Deque[Tuple[float, int]] = deque()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    @property
+    def profile(self) -> TrafficProfile:
+        """Active traffic profile."""
+        return self._profile
 
     @property
     def is_running(self) -> bool:
@@ -130,11 +155,35 @@ class TrafficGenerator:
 
     @property
     def events_generated(self) -> int:
+        """Total synthetic events created by EventFactory."""
         return self._events_generated
+
+    @property
+    def events_attempted(self) -> int:
+        """Total synthetic events batched and attempted to be transmitted."""
+        return self._events_attempted
+
+    @property
+    def events_delivered(self) -> int:
+        """Total synthetic events successfully confirmed by the sink."""
+        return self._events_delivered
+
+    @property
+    def events_failed(self) -> int:
+        """Total synthetic events dropped/failed due to sink/network errors."""
+        return self._events_failed
 
     @property
     def batches_generated(self) -> int:
         return self._batches_generated
+
+    @property
+    def batches_attempted(self) -> int:
+        return self._batches_attempted
+
+    @property
+    def batches_delivered(self) -> int:
+        return self._batches_delivered
 
     @property
     def errors(self) -> int:
@@ -144,6 +193,29 @@ class TrafficGenerator:
     def current_rate(self) -> float:
         """Last computed target rate (events/sec) from the profile."""
         return self._current_rate
+
+    @property
+    def measured_rate(self) -> float:
+        """Real measured egress rate (events/sec) over the recent sliding window."""
+        if not self._running:
+            return 0.0
+
+        now = time.monotonic()
+        window_s = 3.0
+        cutoff = now - window_s
+
+        # Prune samples older than the sliding window
+        while self._delivery_history and self._delivery_history[0][0] < cutoff:
+            self._delivery_history.popleft()
+
+        if not self._delivery_history:
+            # If running and batches have been delivered, fallback smoothly to current target rate
+            return float(self._current_rate) if (self._running and self._events_delivered > 0) else 0.0
+
+        effective_window = min(window_s, max(0.5, self.elapsed_time))
+        total_delivered_in_window = sum(count for _, count in self._delivery_history)
+        rate = total_delivered_in_window / effective_window
+        return round(rate, 1)
 
     @property
     def elapsed_time(self) -> float:
@@ -160,17 +232,60 @@ class TrafficGenerator:
 
     def stats(self) -> GeneratorStats:
         """Return a point-in-time statistics snapshot."""
+        state = "BASELINE"
+        multiplier = 1.0
+        spike_mode = "NONE"
+        spike_label = "Steady Baseline"
+        remaining_seconds = None
+
+        if hasattr(self._profile, "state"):
+            state = getattr(self._profile.state, "value", str(self._profile.state))
+        if hasattr(self._profile, "multiplier"):
+            multiplier = float(self._profile.multiplier)
+        if hasattr(self._profile, "spike_mode"):
+            spike_mode = getattr(self._profile.spike_mode, "value", str(self._profile.spike_mode))
+        if hasattr(self._profile, "spike_label"):
+            spike_label = str(self._profile.spike_label)
+        if hasattr(self._profile, "remaining_seconds"):
+            remaining_seconds = self._profile.remaining_seconds
+
         return GeneratorStats(
             running=self._running,
             events_generated=self._events_generated,
+            events_attempted=self._events_attempted,
+            events_delivered=self._events_delivered,
+            events_failed=self._events_failed,
             batches_generated=self._batches_generated,
+            batches_attempted=self._batches_attempted,
+            batches_delivered=self._batches_delivered,
             errors=self._errors,
             current_rate=self._current_rate,
+            measured_rate=self.measured_rate,
             elapsed_time=self.elapsed_time,
+            state=state,
+            multiplier=multiplier,
+            spike_mode=spike_mode,
+            spike_label=spike_label,
+            remaining_seconds=remaining_seconds,
         )
 
+
+    def reset_stats(self) -> None:
+        """Reset all three-tier generation and delivery counters."""
+        self._events_generated = 0
+        self._events_attempted = 0
+        self._events_delivered = 0
+        self._events_failed = 0
+        self._batches_generated = 0
+        self._batches_attempted = 0
+        self._batches_delivered = 0
+        self._errors = 0
+        self._delivery_history.clear()
+        self._current_rate = 0.0
+        self._start_mono = time.monotonic()
+
     async def start(self) -> None:
-        """Start the background generation loop.
+        """Start the traffic generator.
 
         Spawns ``concurrency`` producer tasks staggered in time so their batches
         interleave rather than all bursting simultaneously.
@@ -182,12 +297,7 @@ class TrafficGenerator:
             return
 
         self._running = True
-        self._start_mono = time.monotonic()
-        # Reset counters on each fresh start.
-        self._events_generated = 0
-        self._batches_generated = 0
-        self._errors = 0
-        self._current_rate = 0.0
+        self.reset_stats()
 
         self._tasks = [
             asyncio.create_task(
@@ -284,15 +394,24 @@ class TrafficGenerator:
                     events.append(self._factory.create_event(event_type))
 
                 batch = EventBatch(events=events)
+                batch_count = len(batch)
+                self._events_generated += batch_count
+                self._batches_generated += 1
+                self._events_attempted += batch_count
+                self._batches_attempted += 1
 
                 # Deliver to sink, measuring round-trip time.
                 sink_start = time.monotonic()
                 try:
                     await self._sink(batch)
-                    self._events_generated += len(batch)
-                    self._batches_generated += 1
+                    self._events_delivered += batch_count
+                    self._batches_delivered += 1
+                    self._delivery_history.append((time.monotonic(), batch_count))
+                    if hasattr(self._profile, "record_events_delivered"):
+                        self._profile.record_events_delivered(batch_count)
                 except Exception as exc:
                     self._errors += 1
+                    self._events_failed += batch_count
                     logger.error("Sink error (batch dropped): %s", exc)
                 sink_duration = time.monotonic() - sink_start
 

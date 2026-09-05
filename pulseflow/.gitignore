@@ -10,6 +10,8 @@ tmp/
 temp/
 *.tmp
 *.db
+*.db-shm
+*.db-wal
 
 # Node dependencies
 **/node_modules/

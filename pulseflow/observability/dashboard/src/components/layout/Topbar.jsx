@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
+import { ExternalLink } from 'lucide-react'
 import { telemetryService } from '../../api/telemetry.js'
 
 /**
  * Topbar — Machine 2 System Bar
  * Left:  Breadcrumb navigation (no duplicate titles)
- * Right: Single live status dot (green when connected, red when disconnected)
+ * Right: Workload generator cross-link & single live status dot
  */
 export default function Topbar() {
   const [connected, setConnected] = useState(telemetryService.isConnected)
@@ -26,8 +27,29 @@ export default function Topbar() {
         </div>
       </div>
 
-      {/* ── Right: Single status dot (green or red according to status) ──── */}
-      <div className="topbar-right" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+      {/* ── Right: Workload Generator Cross-Link + Single status dot ──── */}
+      <div className="topbar-right" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+        <a
+          href="http://localhost:5173/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn btn-secondary btn-sm"
+          style={{
+            textDecoration: 'none',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            fontWeight: 600,
+            fontSize: '11px',
+            padding: '3px 10px',
+            borderRadius: 'var(--radius-xs)'
+          }}
+          title="Open TechPulse Workload Generator (Machine 1)"
+        >
+          <span>Workload Generator (5173)</span>
+          <ExternalLink size={12} strokeWidth={2} />
+        </a>
+
         <span
           id="topbar-pipeline-status-dot"
           className={`status-dot ${connected ? 'status-dot-live-green' : 'status-dot-live-red'}`}

@@ -37,56 +37,57 @@ DEFAULT_EVENT_TYPE_DISTRIBUTION: dict[str, float] = {
 }
 
 
-def _generate_payload_for_type(event_type: str) -> dict:
+def _generate_payload_for_type(event_type: str, rng: Optional[random.Random] = None) -> dict:
     """Generate realistic payload data based on the event type."""
-    user_id = f"user_{random.randint(1000, 99999)}"
-    item_id = f"item_{random.randint(100, 9999)}"
+    r = rng if rng is not None else random
+    user_id = f"user_{r.randint(1000, 99999)}"
+    item_id = f"item_{r.randint(100, 9999)}"
 
     if event_type == "ORDER":
         return {
             "user_id": user_id,
-            "order_id": f"ord_{uuid.uuid4().hex[:8]}",
-            "amount": round(random.uniform(10.0, 500.0), 2),
-            "items_count": random.randint(1, 5),
-            "payment_method": random.choice(["credit_card", "upi", "paypal"]),
+            "order_id": f"ord_{r.getrandbits(32):08x}",
+            "amount": round(r.uniform(10.0, 500.0), 2),
+            "items_count": r.randint(1, 5),
+            "payment_method": r.choice(["credit_card", "upi", "paypal"]),
         }
     elif event_type == "PAYMENT":
         return {
             "user_id": user_id,
-            "payment_id": f"pay_{uuid.uuid4().hex[:8]}",
-            "amount": round(random.uniform(10.0, 500.0), 2),
+            "payment_id": f"pay_{r.getrandbits(32):08x}",
+            "amount": round(r.uniform(10.0, 500.0), 2),
             "status": "INITIATED",
-            "gateway": random.choice(["stripe", "razorpay", "adyen"]),
+            "gateway": r.choice(["stripe", "razorpay", "adyen"]),
         }
     elif event_type == "CART_ADD":
         return {
             "user_id": user_id,
             "item_id": item_id,
-            "quantity": random.randint(1, 3),
-            "price": round(random.uniform(5.0, 150.0), 2),
+            "quantity": r.randint(1, 3),
+            "price": round(r.uniform(5.0, 150.0), 2),
         }
     elif event_type == "INVENTORY_UPDATE":
         return {
             "item_id": item_id,
-            "warehouse_id": f"wh_{random.randint(1, 10)}",
-            "stock_delta": random.randint(-5, 50),
+            "warehouse_id": f"wh_{r.randint(1, 10)}",
+            "stock_delta": r.randint(-5, 50),
         }
     elif event_type == "PAGE_VIEW":
         return {
             "user_id": user_id,
-            "url": random.choice(["/home", "/product/flash-sale", "/cart", "/deals", "/categories"]),
-            "referrer": random.choice(["google", "direct", "newsletter", "social"]),
+            "url": r.choice(["/home", "/product/flash-sale", "/cart", "/deals", "/categories"]),
+            "referrer": r.choice(["google", "direct", "newsletter", "social"]),
         }
     elif event_type == "CLICK":
         return {
             "user_id": user_id,
-            "element_id": random.choice(["btn_buy_now", "btn_add_cart", "banner_sale", "nav_item"]),
+            "element_id": r.choice(["btn_buy_now", "btn_add_cart", "banner_sale", "nav_item"]),
             "target_url": "/product/detail",
         }
     elif event_type == "LOG":
         return {
-            "level": random.choice(["DEBUG", "INFO", "WARN"]),
-            "component": random.choice(["frontend_telemetry", "cdn_edge", "auth_proxy"]),
+            "level": r.choice(["DEBUG", "INFO", "WARN"]),
+            "component": r.choice(["frontend_telemetry", "cdn_edge", "auth_proxy"]),
             "message": "client telemetry pulse",
         }
     return {"user_id": user_id, "type": event_type}
@@ -267,3 +268,56 @@ class WorkloadGenerator:
                 yield event, phase.name
                 if interval > 0.0001:
                     await asyncio.sleep(interval)
+
+
+def generate_benchmark_dataset(
+    config: Any,
+    base_time: Optional[float] = None,
+) -> list[Event]:
+    """Generate an immutable, reproducible list of Event objects for benchmark comparison.
+    
+    Guarantees:
+      - Uses deterministic random generator seeded with config.seed.
+      - Event IDs follow bench_ev_{index:06d}.
+      - Event timestamps are distributed according to config.target_rate.
+      - Identical dataset can be replayed across both Naive and PulseFlow pipelines.
+    """
+    rng = random.Random(config.seed)
+    dist = config.distribution
+    types = list(dist.keys())
+    weights = list(dist.values())
+    
+    start_t = base_time if base_time is not None else 1788588000.0  # Fixed epoch for reproducibility
+    interval = (1.0 / config.target_rate) if config.target_rate > 0 else 0.001
+
+    events: list[Event] = []
+    for i in range(config.total_events):
+        event_type = rng.choices(types, weights=weights, k=1)[0]
+        payload = _generate_payload_for_type(event_type, rng=rng)
+        payload["_bench_seq"] = i
+        
+        event = Event(
+            event_id=f"bench_ev_{i:06d}",
+            event_type=event_type,
+            payload=payload,
+            timestamp=round(start_t + (i * interval), 6),
+        )
+        event.ensure_priority()
+        events.append(event)
+
+    return events
+
+
+def clone_events_for_replay(events: list[Event]) -> list[Event]:
+    """Create fresh Event instances with identical data for a separate pipeline run."""
+    cloned: list[Event] = []
+    for ev in events:
+        new_ev = Event(
+            event_id=ev.event_id,
+            event_type=ev.event_type,
+            payload=dict(ev.payload),
+            priority=ev.priority,
+            timestamp=ev.timestamp,
+        )
+        cloned.append(new_ev)
+    return cloned
