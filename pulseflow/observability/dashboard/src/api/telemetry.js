@@ -142,11 +142,15 @@ export class TelemetryService {
       };
 
       const shedStats = {
-        shed:     data.shedStats?.shed ?? 0,
-        deferred: data.shedStats?.deferred ?? 0,
-        sampled:  data.shedStats?.sampled ?? 0,
-        batched:  data.shedStats?.batched ?? 0,
-        streamed: data.shedStats?.streamed ?? 0,
+        shed:              data.shedStats?.shed ?? 0,
+        deferred:          data.shedStats?.deferred ?? 0,
+        sampled:           data.shedStats?.sampled ?? 0,
+        sampled_kept:      data.shedStats?.sampled_kept ?? 0,
+        sampled_dropped:   data.shedStats?.sampled_dropped ?? 0,
+        batched:           data.shedStats?.batched ?? 0,
+        streamed:          data.shedStats?.streamed ?? 0,
+        critical_protected: data.shedStats?.critical_protected ?? 0,
+        ...(data.shedStats ?? {}),
       };
 
       const payload = {

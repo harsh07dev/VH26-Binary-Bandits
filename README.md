@@ -465,3 +465,8 @@ When capacity is constrained, PulseFlow does not treat all events equally. It tr
 
 ---
 
+## Documentation & Walkthrough
+
+For complete details on all recent architecture upgrades, digital oscilloscope engineering, visual telemetry enhancements, and verification logs, check out:
+- **[WALKTHROUGH.md](WALKTHROUGH.md)** — Step-by-step engineering walkthrough & verification history.
+
