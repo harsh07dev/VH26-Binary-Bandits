@@ -14,6 +14,8 @@ from pipeline.queues.base_queue import LaneQueue
 from pipeline.queues.critical_queue import CriticalQueue
 from pipeline.queues.normal_queue import NormalQueue
 from pipeline.queues.best_effort_queue import BestEffortQueue
+from pipeline.queues.redis_queue import RedisLaneQueue
+from pipeline.config import config
 
 
 class QueueGrowthTracker:
@@ -53,9 +55,14 @@ class QueueManager:
         best_effort_queue: Optional[BestEffortQueue] = None,
         default_capacity: Optional[int] = None,
     ) -> None:
-        self.critical_queue = critical_queue or CriticalQueue(capacity=default_capacity)
-        self.normal_queue = normal_queue or NormalQueue(capacity=default_capacity)
-        self.best_effort_queue = best_effort_queue or BestEffortQueue(capacity=default_capacity)
+        if config.queue_backend.lower() == "redis":
+            self.critical_queue = critical_queue or RedisLaneQueue(priority=Priority.CRITICAL, redis_url=config.redis_url, capacity=default_capacity)
+            self.normal_queue = normal_queue or RedisLaneQueue(priority=Priority.NORMAL, redis_url=config.redis_url, capacity=default_capacity)
+            self.best_effort_queue = best_effort_queue or RedisLaneQueue(priority=Priority.BEST_EFFORT, redis_url=config.redis_url, capacity=default_capacity)
+        else:
+            self.critical_queue = critical_queue or CriticalQueue(capacity=default_capacity)
+            self.normal_queue = normal_queue or NormalQueue(capacity=default_capacity)
+            self.best_effort_queue = best_effort_queue or BestEffortQueue(capacity=default_capacity)
 
         self._queues: Dict[Priority, LaneQueue] = {
             Priority.CRITICAL: self.critical_queue,
