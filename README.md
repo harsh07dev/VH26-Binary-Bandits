@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ PulseFlow
+#  PulseFlow
 
 **Adaptive Priority-Aware Event Processing Pipeline**
 
@@ -12,7 +12,7 @@
 [![AsyncIO](https://img.shields.io/badge/AsyncIO-Concurrent-6366f1?style=flat-square)](https://docs.python.org/3/library/asyncio.html)
 [![SQLite](https://img.shields.io/badge/Storage-SQLite-003b57?style=flat-square&logo=sqlite&logoColor=white)](https://sqlite.org)
 [![Tests](https://img.shields.io/badge/Tests-230%20passing-22c55e?style=flat-square)](https://pytest.org)
-[![License](https://img.shields.io/badge/License-MIT-f59e0b?style=flat-square)](LICENSE)
+
 
 </div>
 
@@ -465,6 +465,3 @@ When capacity is constrained, PulseFlow does not treat all events equally. It tr
 
 ---
 
-## License
-
-MIT — see [LICENSE](LICENSE) for details.
