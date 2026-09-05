@@ -22,6 +22,7 @@ class AdaptiveMetricsTracker:
             "sampled_dropped": 0,
             "batched": 0,
             "streamed": 0,
+            "critical_protected": 0,
         }
         self.recent_events = deque(maxlen=20)
         self.latest_snapshot = None
@@ -46,6 +47,9 @@ class AdaptiveMetricsTracker:
             self.shed_stats["batched"] += 1
         elif decision.strategy == Action.STREAM:
             self.shed_stats["streamed"] += 1
+
+        if decision.priority == Priority.CRITICAL:
+            self.shed_stats["critical_protected"] = self.shed_stats.get("critical_protected", 0) + 1
             
         # Add to recent events
         self.recent_events.append({
