@@ -94,6 +94,54 @@ class EventRepository:
                 return d
         return None
 
+    async def get_event_history(
+        self,
+        event_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        priority: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Query processed events with optional filters, newest first.
+
+        All filters are applied via parameterized SQL — no raw user input is
+        interpolated into the query string.
+        """
+        conditions: List[str] = []
+        params: List[Any] = []
+
+        if event_id is not None:
+            conditions.append("event_id = ?")
+            params.append(event_id)
+        if event_type is not None:
+            conditions.append("event_type = ?")
+            params.append(event_type)
+        if priority is not None:
+            conditions.append("priority = ?")
+            params.append(priority)
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"SELECT * FROM processed_events {where_clause} ORDER BY processed_at DESC LIMIT ?"
+        params.append(max(1, limit))
+
+        conn = await self.db.connect()
+        async with conn.execute(sql, params) as cursor:
+            rows = await cursor.fetchall()
+
+        result: List[Dict[str, Any]] = []
+        for row in rows:
+            d = dict(row)
+            if d.get("payload"):
+                try:
+                    d["payload"] = json.loads(d["payload"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            result.append(d)
+        return result
+
     async def count_events(self, priority: Optional[Priority] = None) -> int:
         """Count total processed events, optionally filtered by priority lane."""
         conn = await self.db.connect()

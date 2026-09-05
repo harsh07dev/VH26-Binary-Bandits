@@ -5,8 +5,8 @@ Provides single and batch ingestion with validation and priority stamping.
 """
 
 import time
-from typing import Any, Callable, Dict, Optional, Awaitable, Union
-from fastapi import APIRouter, HTTPException, status
+from typing import Any, Callable, Dict, List, Optional, Awaitable, Union
+from fastapi import APIRouter, HTTPException, Query, status
 
 from contracts.events import Event, EventBatch
 from contracts.priorities import Priority, classify_event_type
@@ -18,6 +18,7 @@ from pipeline.ingestion.models import (
 )
 
 from pipeline.queues.queue_manager import queue_manager, QueueManager
+from pipeline.storage.repository import event_repository
 
 router = APIRouter(tags=["Ingestion"])
 
@@ -146,6 +147,47 @@ async def get_backpressure_metrics() -> dict[str, Any]:
         "low_watermark": backpressure_controller.low_watermark,
         "total_throttled": backpressure_controller.total_throttled,
     }
+
+
+@router.get("/events/history", tags=["History"])
+async def get_event_history(
+    event_id: Optional[str] = Query(default=None, description="Filter by exact event ID"),
+    event_type: Optional[str] = Query(default=None, description="Filter by event type (e.g. ORDER)"),
+    priority: Optional[str] = Query(default=None, description="Filter by priority lane (e.g. CRITICAL)"),
+    event_status: Optional[str] = Query(default=None, alias="status", description="Filter by processing status"),
+    limit: int = Query(default=50, ge=1, le=1000, description="Maximum number of results to return"),
+) -> Dict[str, Any]:
+    """Return persisted processed events, newest first.
+
+    All query parameters are optional. Results are capped by *limit* (1–1000).
+    """
+    events: List[Dict[str, Any]] = await event_repository.get_event_history(
+        event_id=event_id,
+        event_type=event_type,
+        priority=priority,
+        status=event_status,
+        limit=limit,
+    )
+    return {
+        "status": "success",
+        "count": len(events),
+        "events": events,
+    }
+
+
+@router.get("/events/{event_id}", tags=["History"])
+async def get_single_event(event_id: str) -> Dict[str, Any]:
+    """Retrieve a single persisted event by its ID.
+
+    Returns HTTP 404 if no matching event is found in the database.
+    """
+    event = await event_repository.get_event(event_id)
+    if event is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event '{event_id}' not found.",
+        )
+    return event
 
 
 @router.post("/events", response_model=IngestResponse, status_code=status.HTTP_202_ACCEPTED)

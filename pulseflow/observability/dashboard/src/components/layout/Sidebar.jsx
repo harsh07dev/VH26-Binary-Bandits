@@ -1,11 +1,16 @@
-import { Eye } from 'lucide-react'
+import { Eye, Clock } from 'lucide-react'
 
-/* ─ Nav structure ──────────────────────────────────────────── */
 const sections = [
   {
     label: 'Observability',
     items: [
       { id: 'observability', label: 'Observability', icon: Eye },
+    ],
+  },
+  {
+    label: 'Data',
+    items: [
+      { id: 'history', label: 'History', icon: Clock },
     ],
   },
 ]
