@@ -21,6 +21,7 @@ from adaptive.pressure.pressure_calculator import PressureCalculator
 from adaptive.policies.policy_engine import PolicyEngine
 from adaptive.allocation.worker_allocator import WorkerAllocator
 from adaptive.sampling.sampler import ProbabilisticSampler, adaptive_sampler
+from adaptive.allocation.batch_sizer import batch_sizer
 from pipeline.workers.worker_pool import worker_pool
 
 
@@ -82,7 +83,9 @@ class DecisionEngine:
         # Reallocate workers dynamically (worker_pool safely manages in-flight tasks)
         # Only reallocate if we're actually running (to prevent crashing tests that mock state)
         if worker_pool.is_running:
-            await worker_pool.set_allocation(allocation)
+            # Dynamic Adaptive Batching using stateful batch sizer
+            batch_sizes = batch_sizer.calculate(snapshot)
+            await worker_pool.set_allocation(allocation, batch_sizes=batch_sizes)
             
         return AdaptiveDecision(
             event_id=event.event_id,

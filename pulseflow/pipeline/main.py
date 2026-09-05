@@ -143,6 +143,7 @@ async def lifespan(app: FastAPI):
     from contracts.metrics import SystemSnapshot
     from adaptive.scheduler.decision_engine import DecisionEngine
     from adaptive.scheduler.metrics_tracker import adaptive_metrics
+    from adaptive.allocation.batch_sizer import batch_sizer
     from pipeline.processing.telemetry import processing_telemetry
     from contracts.priorities import Priority
     from contracts.events import Event
@@ -168,6 +169,14 @@ async def lifespan(app: FastAPI):
             p95_latency_ms=p95_lat,
             p99_latency_ms=p99_lat,
         )
+        
+        # Inject adaptive batching metrics based on previous state
+        snapshot.batching = batch_sizer.get_metrics(
+            snapshot, 
+            pressure_state="NORMAL" if not adaptive_metrics.latest_decision else adaptive_metrics.latest_decision.pressure_state.value,
+            batch_timeout_ms=50.0  # Or from config if needed, but 50.0 is fine
+        )
+        
         decision = await DecisionEngine.process_event(event, snapshot, ingress_rate=rate)
         
         # Inject the real event type into the tracker
@@ -254,6 +263,8 @@ async def get_adaptive_metrics() -> Dict[str, Any]:
     """Real-time telemetry from the Adaptive Decision Engine."""
     from adaptive.scheduler.metrics_tracker import adaptive_metrics
     from pipeline.processing.telemetry import processing_telemetry
+    from adaptive.allocation.batch_sizer import batch_sizer
+    from contracts.metrics import SystemSnapshot
     
     q_metrics = queue_manager.queue_metrics()
     w_metrics = worker_pool.worker_metrics()
@@ -301,11 +312,15 @@ async def get_adaptive_metrics() -> Dict[str, Any]:
         "w4": 0, # Spare
         "totalWorkers": w_metrics.total,
     }
+    # Reconstruct a basic snapshot to query batch_sizer metrics
+    temp_snapshot = SystemSnapshot(queues=q_metrics, workers=w_metrics)
+    batching_metrics = batch_sizer.get_metrics(temp_snapshot, pressure_state, 50.0)
     
     return {
         "metrics": metrics,
         "infraMetrics": infraMetrics,
         "shedStats": adaptive_metrics.shed_stats,
+        "batching": batching_metrics.model_dump() if hasattr(batching_metrics, 'model_dump') else batching_metrics.dict(),
         "recentEvents": list(adaptive_metrics.recent_events),
         "actual_ingress_rate": actual_ingress_rate,
         "ingress_rate": actual_ingress_rate,

@@ -163,6 +163,78 @@ async def test_batch_worker_flushes_on_timeout(test_processor, test_repo):
     await worker.stop()
 
 
+@pytest.mark.asyncio
+async def test_batch_worker_dynamic_param_update(test_processor, test_repo):
+    """Verify BatchWorker safely updates params in-flight without losing events or restarting."""
+    q = NormalQueue()
+    worker = BatchWorker(
+        worker_id="norm-batch-dyn",
+        priority=Priority.NORMAL,
+        queue=q,
+        processor=test_processor,
+        batch_size=10,
+        batch_timeout_ms=500.0,
+    )
+    
+    worker.start()
+    assert worker.is_running
+    
+    # Send 3 events (less than batch_size=10)
+    for i in range(3):
+        await q.enqueue(Event(event_id=f"dyn-e{i}", event_type="CART_ADD"))
+        
+    await asyncio.sleep(0.05)
+    
+    # Update params safely in-flight. The worker does not restart.
+    worker.set_batch_params(batch_size=2, batch_timeout_ms=10.0)
+    assert worker.is_running
+    
+    # Because the first batch started with size=10, timeout=500, we'll wait for it to flush.
+    for _ in range(20):
+        if worker.events_processed >= 3:
+            break
+        await asyncio.sleep(0.05)
+        
+    assert worker.events_processed == 3
+    
+    # Now send 3 more events. The new batch size is 2, so it should process 2 quickly.
+    for i in range(3, 6):
+        await q.enqueue(Event(event_id=f"dyn-e{i}", event_type="CART_ADD"))
+        
+    for _ in range(20):
+        if worker.events_processed >= 5:
+            break
+        await asyncio.sleep(0.05)
+        
+    # The worker processed 5 events total, leaving 1 in the queue or it flushed due to timeout=10ms.
+    assert worker.events_processed >= 5
+    assert worker.is_running  # No restart happened
+    
+    await worker.stop()
+
+
+def test_batch_worker_invalid_params_validation(test_processor):
+    """Verify BatchWorker enforces min constraints on dynamic params."""
+    q = NormalQueue()
+    worker = BatchWorker(
+        worker_id="norm-batch-val",
+        priority=Priority.NORMAL,
+        queue=q,
+        processor=test_processor,
+        batch_size=0,
+        batch_timeout_ms=-10.0,
+    )
+    
+    # __init__ validation
+    assert worker.batch_size == 1
+    assert worker.batch_timeout_ms == 1.0
+    
+    # set_batch_params validation
+    worker.set_batch_params(batch_size=-5, batch_timeout_ms=0.5)
+    assert worker.batch_size == 1
+    assert worker.batch_timeout_ms == 1.0
+
+
 # ---------------------------------------------------------------------------
 # WorkerPool Dynamic Allocation & Scaling Tests
 # ---------------------------------------------------------------------------
@@ -232,6 +304,53 @@ async def test_worker_pool_initialization_and_dynamic_scaling(test_processor):
 
     await pool.stop()
     assert not pool.is_running
+
+
+@pytest.mark.asyncio
+async def test_worker_pool_inplace_batch_update(test_processor):
+    """Verify WorkerPool updates batch params in-place without replacing workers."""
+    qm = QueueManager()
+    pool = WorkerPool(qm=qm, processor=test_processor)
+
+    # 1. Start with initial allocation and default batch parameters
+    initial_allocation = {Priority.NORMAL: 2}
+    await pool.start(
+        initial_allocation=initial_allocation,
+        batch_sizes={Priority.NORMAL: 10},
+        batch_timeouts_ms={Priority.NORMAL: 100.0}
+    )
+
+    workers_before = pool.get_workers(Priority.NORMAL)
+    assert len(workers_before) == 2
+    for w in workers_before:
+        assert isinstance(w, BatchWorker)
+        assert w.batch_size == 10
+        assert w.batch_timeout_ms == 100.0
+        assert w.is_running
+
+    # Save their object IDs to verify they aren't destroyed
+    worker_ids = {id(w) for w in workers_before}
+
+    # 2. Update ONLY batch parameters, worker count unchanged
+    await pool.set_allocation(
+        allocation={Priority.NORMAL: 2},
+        batch_sizes={Priority.NORMAL: 50},
+        batch_timeouts_ms={Priority.NORMAL: 250.0}
+    )
+
+    workers_after = pool.get_workers(Priority.NORMAL)
+    assert len(workers_after) == 2
+
+    # Verify identical instances were kept
+    assert {id(w) for w in workers_after} == worker_ids
+
+    # Verify batch sizes updated in-place
+    for w in workers_after:
+        assert w.batch_size == 50
+        assert w.batch_timeout_ms == 250.0
+        assert w.is_running
+
+    await pool.stop()
 
 
 # ---------------------------------------------------------------------------

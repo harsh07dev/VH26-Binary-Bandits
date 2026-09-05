@@ -94,12 +94,14 @@ export default function ObservabilityPage() {
   const [metrics, setMetrics] = useState({ queueSize: 0, latency: 0, workerLoad: 0, processingCost: 'LOW', isSpikeMode: false, ingress: 0, throughput: 0, pressureState: 'NORMAL', pressureScore: 0 })
   const [infraMetrics, setInfraMetrics] = useState({ queueT1: 0, latT1: 0, queueT2: 0, latT2: 0, queueT3: 0, latT3: 0, w1: 0, w2: 0, w3: 0, w4: 0, totalWorkers: 8 })
   const [shedStats, setShedStats] = useState({ shed: 0, deferred: 0, sampled: 0 })
+  const [batching, setBatching] = useState(null)
 
   useEffect(() => {
     const unsubTelemetry = telemetryService.onTelemetryUpdate((data) => {
       setMetrics(data.metrics);
       setInfraMetrics(data.infraMetrics);
       setShedStats({ ...data.shedStats });
+      setBatching(data.batching ?? null);
 
       // Compute live event-type distribution from the backend's recent-events window
       setEventMix(computeEventMix(data.recentEventTypes ?? []));
@@ -525,6 +527,76 @@ export default function ObservabilityPage() {
 
           </div>
         </section>
+
+      </div>
+      
+      {/* ── 8. ADAPTIVE BATCHING TELEMETRY ────────────────── */}
+      <section style={{ paddingBottom: 'var(--space-8)' }}>
+        <SectionHeading>8. Adaptive Batching & Growth</SectionHeading>
+        <div className="grid grid-cols-2" style={{ gap: 'var(--space-6)' }}>
+          
+          <div className="card" style={{ padding: 'var(--space-5)' }}>
+            <div className="card-title" style={{ marginBottom: 'var(--space-4)' }}>Adaptive Batching</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              
+              <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>NORMAL</span>
+                  <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{batching?.normal?.current_batch_size ?? 0} events/batch</span>
+                </div>
+                <div style={{ display: 'flex', gap: 'var(--space-3)', fontSize: '10px', color: 'var(--color-text-secondary)' }}>
+                  <span>Prev: {batching?.normal?.previous_batch_size ?? 0}</span>
+                  <span>Timeout: {batching?.normal?.batch_timeout_ms ?? 0}ms</span>
+                  <span>Increases: {batching?.normal?.increases_count ?? 0}</span>
+                  <span>Decreases: {batching?.normal?.decreases_count ?? 0}</span>
+                </div>
+              </div>
+
+              <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>BEST-EFFORT</span>
+                  <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{batching?.best_effort?.current_batch_size ?? 0} events/batch</span>
+                </div>
+                <div style={{ display: 'flex', gap: 'var(--space-3)', fontSize: '10px', color: 'var(--color-text-secondary)' }}>
+                  <span>Prev: {batching?.best_effort?.previous_batch_size ?? 0}</span>
+                  <span>Timeout: {batching?.best_effort?.batch_timeout_ms ?? 0}ms</span>
+                  <span>Increases: {batching?.best_effort?.increases_count ?? 0}</span>
+                  <span>Decreases: {batching?.best_effort?.decreases_count ?? 0}</span>
+                </div>
+              </div>
+              
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: 'var(--space-5)' }}>
+            <div className="card-title" style={{ marginBottom: 'var(--space-4)' }}>Queue Growth (dq/dt)</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              
+              <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>NORMAL</span>
+                  <span style={{ fontWeight: 600, color: (batching?.normal?.growth_rate ?? 0) > 0 ? 'var(--color-warning)' : 'var(--color-success-text)' }}>
+                    {(batching?.normal?.growth_rate ?? 0) > 0 ? '+' : ''}{(batching?.normal?.growth_rate ?? 0).toFixed(1)} events/s
+                  </span>
+                </div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>Depth: {batching?.normal?.queue_depth ?? 0}</div>
+              </div>
+
+              <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>BEST-EFFORT</span>
+                  <span style={{ fontWeight: 600, color: (batching?.best_effort?.growth_rate ?? 0) > 0 ? 'var(--color-warning)' : 'var(--color-success-text)' }}>
+                    {(batching?.best_effort?.growth_rate ?? 0) > 0 ? '+' : ''}{(batching?.best_effort?.growth_rate ?? 0).toFixed(1)} events/s
+                  </span>
+                </div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>Depth: {batching?.best_effort?.queue_depth ?? 0}</div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </section>
 
       </div>
     </>
