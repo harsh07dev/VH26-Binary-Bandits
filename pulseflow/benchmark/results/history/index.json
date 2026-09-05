@@ -1,5 +1,65 @@
 [
   {
+    "benchmark_id": "benchmark_2026_09_05_145548_a73e",
+    "timestamp": 1788600348.943,
+    "created_at": "2026-09-05 09:25:48 UTC",
+    "scenario": "FLASH_SALE",
+    "event_count": 200,
+    "target_rate": 2000.0,
+    "seed": 42,
+    "naive_critical_loss": 12,
+    "pulseflow_critical_loss": 0,
+    "critical_p95_improvement_pct": 70.43
+  },
+  {
+    "benchmark_id": "benchmark_2026_09_05_145547_e493",
+    "timestamp": 1788600348.316,
+    "created_at": "2026-09-05 09:25:48 UTC",
+    "scenario": "CUSTOM",
+    "event_count": 150,
+    "target_rate": 450.0,
+    "seed": 888,
+    "naive_critical_loss": 58,
+    "pulseflow_critical_loss": 0,
+    "critical_p95_improvement_pct": -66.38
+  },
+  {
+    "benchmark_id": "benchmark_2026_09_05_145547_fd11",
+    "timestamp": 1788600347.798,
+    "created_at": "2026-09-05 09:25:47 UTC",
+    "scenario": "FLASH_SALE",
+    "event_count": 60,
+    "target_rate": 300.0,
+    "seed": 99,
+    "naive_critical_loss": 2,
+    "pulseflow_critical_loss": 0,
+    "critical_p95_improvement_pct": 79.36
+  },
+  {
+    "benchmark_id": "benchmark_2026_09_05_145547_a979",
+    "timestamp": 1788600347.514,
+    "created_at": "2026-09-05 09:25:47 UTC",
+    "scenario": "FLASH_SALE",
+    "event_count": 120,
+    "target_rate": 600.0,
+    "seed": 55,
+    "naive_critical_loss": 8,
+    "pulseflow_critical_loss": 0,
+    "critical_p95_improvement_pct": 60.68
+  },
+  {
+    "benchmark_id": "benchmark_2026_09_05_145546_1a17",
+    "timestamp": 1788600347.054,
+    "created_at": "2026-09-05 09:25:47 UTC",
+    "scenario": "FLASH_SALE",
+    "event_count": 80,
+    "target_rate": 400.0,
+    "seed": 77,
+    "naive_critical_loss": 2,
+    "pulseflow_critical_loss": 0,
+    "critical_p95_improvement_pct": 80.95
+  },
+  {
     "benchmark_id": "benchmark_2026_09_05_145503_5575",
     "timestamp": 1788600304.009,
     "created_at": "2026-09-05 09:25:04 UTC",
