@@ -10,6 +10,7 @@ from contracts.priorities import Priority
 from pipeline.queues.base_queue import LaneQueue
 from pipeline.processing.event_processor import EventProcessor
 from pipeline.workers.worker import BaseWorker, WorkerState
+from pipeline.consumer import in_flight_tracker
 
 
 class StreamWorker(BaseWorker):
@@ -42,11 +43,16 @@ class StreamWorker(BaseWorker):
             except asyncio.CancelledError:
                 break
 
+            # Track in-flight event before starting processing
+            in_flight_tracker.track(event)
+
             self.state = WorkerState.BUSY
             try:
                 result = await self.processor.process_single(event, mode="STREAM")
                 self.events_processed += 1
                 self.total_latency_ms += result.latency_ms
+                # Explicit ACK only upon successful processing
+                in_flight_tracker.ack(event.event_id)
             except Exception:
                 self.errors_count += 1
             finally:

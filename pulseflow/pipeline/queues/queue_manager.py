@@ -5,7 +5,8 @@ Provides automatic routing of events by priority, centralized dequeueing,
 depth inspection, and queue metrics export for the adaptive engine and dashboard.
 """
 
-from typing import Optional, Union, Dict
+from typing import Optional, Union, Dict, List
+import time
 from contracts.priorities import Priority
 from contracts.events import Event
 from contracts.metrics import QueueMetrics
@@ -13,6 +14,33 @@ from pipeline.queues.base_queue import LaneQueue
 from pipeline.queues.critical_queue import CriticalQueue
 from pipeline.queues.normal_queue import NormalQueue
 from pipeline.queues.best_effort_queue import BestEffortQueue
+
+
+class QueueGrowthTracker:
+    """Tracks queue depth over time to calculate growth rate (dq/dt)."""
+    
+    def __init__(self, window_size: int = 5):
+        self.window_size = window_size
+        self._samples: List[tuple[float, int]] = []
+        
+    def add_sample(self, depth: int) -> None:
+        now = time.time()
+        self._samples.append((now, depth))
+        if len(self._samples) > self.window_size:
+            self._samples.pop(0)
+            
+    def get_growth_rate(self) -> float:
+        if len(self._samples) < 2:
+            return 0.0
+        
+        t0, d0 = self._samples[0]
+        t1, d1 = self._samples[-1]
+        
+        dt = t1 - t0
+        if dt <= 0:
+            return 0.0
+            
+        return (d1 - d0) / dt
 
 
 class QueueManager:
@@ -34,6 +62,10 @@ class QueueManager:
             Priority.NORMAL: self.normal_queue,
             Priority.BEST_EFFORT: self.best_effort_queue,
         }
+        
+        self.growth_tracker = QueueGrowthTracker()
+        self.normal_growth_tracker = QueueGrowthTracker()
+        self.best_effort_growth_tracker = QueueGrowthTracker()
 
     def _resolve_priority(self, priority: Union[Priority, str]) -> Priority:
         """Resolve a priority enum or string safely."""
@@ -82,6 +114,43 @@ class QueueManager:
         queue = self.get_queue(priority)
         return queue.dequeue_nowait()
 
+    @property
+    def dispatcher(self):
+        """Access or instantiate the Dispatcher coordinating Lazy Priority Aging."""
+        from pipeline.dispatcher import Dispatcher
+        if not hasattr(self, "_dispatcher") or self._dispatcher is None:
+            self._dispatcher = Dispatcher(qm=self)
+        return self._dispatcher
+
+    async def get_with_aging(
+        self,
+        priority: Union[Priority, str],
+        timeout: Optional[float] = None,
+        now: Optional[float] = None,
+    ) -> Event:
+        """Dequeue the next event with Lazy Priority Aging applied when pulling from NORMAL."""
+        p = self._resolve_priority(priority)
+        if p == Priority.NORMAL:
+            return await self.dispatcher.pop_normal(timeout=timeout, now=now)
+        elif p == Priority.CRITICAL:
+            return await self.dispatcher.pop_critical(timeout=timeout)
+        else:
+            return await self.dispatcher.pop_best_effort(timeout=timeout)
+
+    def get_with_aging_nowait(
+        self,
+        priority: Union[Priority, str],
+        now: Optional[float] = None,
+    ) -> Event:
+        """Dequeue immediately with Lazy Priority Aging applied when pulling from NORMAL."""
+        p = self._resolve_priority(priority)
+        if p == Priority.NORMAL:
+            return self.dispatcher.pop_normal_nowait(now=now)
+        elif p == Priority.CRITICAL:
+            return self.dispatcher.pop_critical_nowait()
+        else:
+            return self.dispatcher.pop_best_effort_nowait()
+
     def depth(self, priority: Union[Priority, str]) -> int:
         """Return the current depth (number of waiting events) for a priority lane."""
         queue = self.get_queue(priority)
@@ -105,10 +174,17 @@ class QueueManager:
 
     def queue_metrics(self) -> QueueMetrics:
         """Generate a snapshot of queue depths conforming to the shared QueueMetrics contract."""
+        self.growth_tracker.add_sample(self.total_depth())
+        self.normal_growth_tracker.add_sample(self.normal_queue.depth())
+        self.best_effort_growth_tracker.add_sample(self.best_effort_queue.depth())
+        
         return QueueMetrics(
             critical=self.critical_queue.depth(),
             normal=self.normal_queue.depth(),
             best_effort=self.best_effort_queue.depth(),
+            total_growth_rate=self.growth_tracker.get_growth_rate(),
+            normal_growth_rate=self.normal_growth_tracker.get_growth_rate(),
+            best_effort_growth_rate=self.best_effort_growth_tracker.get_growth_rate()
         )
 
     def capacity(self, priority: Union[Priority, str]) -> Optional[int]:
@@ -122,6 +198,14 @@ class QueueManager:
             Priority.NORMAL.value: self.normal_queue.capacity,
             Priority.BEST_EFFORT.value: self.best_effort_queue.capacity,
         }
+
+    def total_capacity(self) -> int:
+        """Return aggregate finite capacity across all lanes, or fallback to config."""
+        caps = [q.capacity for q in self._queues.values() if q.capacity is not None]
+        if caps:
+            return sum(caps)
+        from pipeline.config import config
+        return config.queue_capacity if config.queue_capacity > 0 else 1000
 
     def is_empty(self) -> bool:
         """Return True if all three queues are currently empty."""

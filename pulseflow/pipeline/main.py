@@ -10,11 +10,126 @@ from fastapi import FastAPI
 import uvicorn
 
 from contracts.metrics import QueueMetrics, WorkerMetrics
+from contracts.priorities import Priority
 from pipeline.config import config
 from pipeline.storage.database import database_manager
 from pipeline.queues.queue_manager import queue_manager
 from pipeline.workers.worker_pool import worker_pool
 from pipeline.ingestion.api import router as ingestion_router, set_enqueue_handler
+
+
+import asyncio
+import signal
+import time
+from collections import deque
+from typing import Any, Deque, Dict, Optional, Tuple
+
+
+class RateTracker:
+    """Sliding-window tracker measuring real-time incoming event ingress rate (events/sec)."""
+
+    def __init__(self, window_sec: float = 1.0):
+        self.window_sec = float(window_sec)
+        self.count = 0
+        self.total_count = 0
+        self.last_reset = time.time()
+        self._samples: Deque[Tuple[float, int]] = deque()
+
+    def reset(self) -> None:
+        """Reset all counters and rolling samples."""
+        self.count = 0
+        self.total_count = 0
+        self.last_reset = time.time()
+        self._samples.clear()
+
+    def mark(self, count: int = 1, now: Optional[float] = None) -> float:
+        """Record incoming event(s) and return the current ingress rate."""
+        t = now if now is not None else time.time()
+        self.count += count
+        self.total_count += count
+        self._samples.append((t, count))
+        self._prune(t)
+        return self.get_rate(now=t)
+
+    def _prune(self, current_time: float) -> None:
+        """Prune samples older than the sliding window."""
+        cutoff = current_time - self.window_sec
+        while self._samples and self._samples[0][0] < cutoff:
+            self._samples.popleft()
+
+    def get_rate(self, now: Optional[float] = None) -> float:
+        """Return the current actual ingress rate (events/sec) over the active window."""
+        t = now if now is not None else time.time()
+        self._prune(t)
+        if not self._samples:
+            return 0.0
+        total_in_window = sum(s[1] for s in self._samples)
+        earliest = self._samples[0][0]
+        elapsed = t - earliest
+        effective_window = max(1.0, min(self.window_sec, elapsed))
+        return round(total_in_window / effective_window, 2)
+
+    @property
+    def current_rate(self) -> float:
+        return self.get_rate()
+
+
+rate_tracker = RateTracker(window_sec=5.0)   # 5s window keeps spike bursts visible for full TechPulse send cycle
+_rate_tracker = rate_tracker
+
+
+async def perform_graceful_shutdown(timeout: float = 3.0) -> None:
+    """Executes the strict graceful shutdown protocol:
+    1. Stop accepting new incoming HTTP events.
+    2. Stop the in-flight timeout monitor.
+    3. Allow workers to finish and ACK active in-flight items.
+    4. Gracefully terminate worker loops.
+    5. Trigger AuditLogger FIFO sentinel flush to persist all audit logs to SQLite.
+    6. Close SQLite database connection cleanly.
+    """
+    from pipeline.ingestion.api import set_enqueue_handler
+    from pipeline.consumer import in_flight_tracker
+    from pipeline.audit import audit_logger
+
+    # 1. Stop accepting new incoming events
+    set_enqueue_handler(None)
+
+    # 2. Stop in-flight timeout monitor
+    await in_flight_tracker.stop_monitor()
+
+    # 3. Allow active in-flight items to complete and ACK
+    drain_start = time.time()
+    while in_flight_tracker.in_flight_count > 0 and (time.time() - drain_start) < timeout:
+        await asyncio.sleep(0.05)
+
+    # 4. Gracefully stop WorkerPool and finish active batches
+    await worker_pool.stop(timeout=timeout)
+
+    # 5. Flush pending audit records via FIFO sentinel commit
+    await audit_logger.stop(timeout=timeout)
+
+    # 6. Close database connection
+    await database_manager.close()
+
+
+def setup_signal_handlers(loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+    """Attach OS signal handlers for SIGTERM and SIGINT."""
+    target_loop = loop
+    try:
+        if target_loop is None:
+            target_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+
+    def _on_signal(sig, frame):
+        if target_loop is not None and target_loop.is_running():
+            asyncio.run_coroutine_threadsafe(perform_graceful_shutdown(), target_loop)
+
+    for s in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(s, _on_signal)
+        except (ValueError, AttributeError):
+            pass
 
 
 @asynccontextmanager
@@ -24,10 +139,60 @@ async def lifespan(app: FastAPI):
     # a. Initialize Database schema and indexes
     await database_manager.init_db()
 
-    # b. Connect Ingestion to QueueManager
-    set_enqueue_handler(queue_manager.enqueue)
+    from pipeline.ingestion.api import set_enqueue_handler
+    from contracts.metrics import SystemSnapshot
+    from adaptive.scheduler.decision_engine import DecisionEngine
+    from adaptive.scheduler.metrics_tracker import adaptive_metrics
+    from adaptive.allocation.batch_sizer import batch_sizer
+    from pipeline.processing.telemetry import processing_telemetry
+    from contracts.priorities import Priority
+    from contracts.events import Event
 
-    # c. Start WorkerPool with configured allocations
+    async def adaptive_enqueue(event: Event, priority: Priority) -> None:
+        rate = rate_tracker.mark()
+        
+        # Pull actual system metrics
+        q_metrics = queue_manager.queue_metrics()
+        w_metrics = worker_pool.worker_metrics()
+        
+        avg_lat = processing_telemetry.get_avg_latency_ms()
+        proc_rate = processing_telemetry.get_processing_rate()
+        p95_lat, p99_lat = processing_telemetry.get_percentiles()
+        
+        snapshot = SystemSnapshot(
+            queues=q_metrics,
+            workers=w_metrics,
+            incoming_count=rate_tracker.total_count,
+            processed_count=processing_telemetry.get_processed_count(),
+            avg_latency_ms=avg_lat,
+            processing_rate=proc_rate,
+            p95_latency_ms=p95_lat,
+            p99_latency_ms=p99_lat,
+        )
+        
+        # Inject adaptive batching metrics based on previous state
+        snapshot.batching = batch_sizer.get_metrics(
+            snapshot, 
+            pressure_state="NORMAL" if not adaptive_metrics.latest_decision else adaptive_metrics.latest_decision.pressure_state.value,
+            batch_timeout_ms=50.0  # Or from config if needed, but 50.0 is fine
+        )
+        
+        decision = await DecisionEngine.process_event(event, snapshot, ingress_rate=rate)
+        
+        # Inject the real event type into the tracker
+        adaptive_metrics.record_decision(decision)
+        if len(adaptive_metrics.recent_events) > 0:
+            adaptive_metrics.recent_events[-1]["type"] = event.event_type
+
+    set_enqueue_handler(adaptive_enqueue)
+
+    # c. Start Audit Logger in WAL mode
+    from pipeline.audit import audit_logger
+    from pipeline.consumer import in_flight_tracker
+    await audit_logger.start()
+    in_flight_tracker.start_monitor()
+
+    # d. Start WorkerPool with configured allocations
     await worker_pool.start(
         initial_allocation=config.default_allocation,
         batch_sizes={
@@ -38,17 +203,16 @@ async def lifespan(app: FastAPI):
         },
     )
 
+    # e. Attach OS signal handlers for SIGTERM and SIGINT
+    try:
+        setup_signal_handlers(asyncio.get_running_loop())
+    except RuntimeError:
+        pass
+
     yield
 
-    # --- 2. Shutdown Sequence ---
-    # a. Stop accepting new events into the queues
-    set_enqueue_handler(None)
-
-    # b. Gracefully stop WorkerPool and finish active batches
-    await worker_pool.stop()
-
-    # c. Close database connection
-    await database_manager.close()
+    # --- 2. Graceful Shutdown Sequence ---
+    await perform_graceful_shutdown()
 
 
 # Core FastAPI Application
@@ -57,6 +221,15 @@ app = FastAPI(
     description="Intelligent Adaptive Event Processing Pipeline - Machine 2 Backend",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 1. Ingestion API routes: POST /events, POST /events/batch, GET /health
@@ -83,6 +256,76 @@ async def get_queue_capacities() -> Dict[str, Any]:
 async def get_worker_metrics() -> WorkerMetrics:
     """Real-time worker allocation, status, and utilization across priority lanes."""
     return worker_pool.worker_metrics()
+
+
+@app.get("/metrics/adaptive", tags=["Observability"])
+async def get_adaptive_metrics() -> Dict[str, Any]:
+    """Real-time telemetry from the Adaptive Decision Engine."""
+    from adaptive.scheduler.metrics_tracker import adaptive_metrics
+    from pipeline.processing.telemetry import processing_telemetry
+    from adaptive.allocation.batch_sizer import batch_sizer
+    from contracts.metrics import SystemSnapshot
+    
+    q_metrics = queue_manager.queue_metrics()
+    w_metrics = worker_pool.worker_metrics()
+    
+    is_spike = False
+    processing_cost = "LOW"
+    pressure_state = "NORMAL"
+    pressure_score = 0.0
+    
+    avg_lat = processing_telemetry.get_avg_latency_ms()
+    proc_rate = processing_telemetry.get_processing_rate()
+    actual_ingress_rate = rate_tracker.get_rate()
+    
+    if adaptive_metrics.latest_decision:
+        pressure_state = adaptive_metrics.latest_decision.pressure_state.value
+        pressure_score = adaptive_metrics.latest_decision.pressure_score
+        is_spike = pressure_state != "NORMAL"
+        processing_cost = "HIGH" if pressure_state == "EXTREME" else ("MEDIUM" if pressure_state == "HIGH" else "LOW")
+        
+    metrics = {
+        "queueSize": q_metrics.total_depth,
+        "latency": avg_lat,
+        "workerLoad": w_metrics.utilization * 100,
+        "processingCost": processing_cost,
+        "isSpikeMode": is_spike,
+        "ingress": actual_ingress_rate,
+        "actual_ingress_rate": actual_ingress_rate,
+        "ingress_rate": actual_ingress_rate,
+        "ingressRate": actual_ingress_rate,
+        "throughput": proc_rate,
+        "pressureState": pressure_state,
+        "pressureScore": pressure_score,
+    }
+    
+    infraMetrics = {
+        "queueT1": q_metrics.critical,
+        "latT1": processing_telemetry.get_avg_latency_ms(Priority.CRITICAL),
+        "queueT2": q_metrics.normal,
+        "latT2": processing_telemetry.get_avg_latency_ms(Priority.NORMAL),
+        "queueT3": q_metrics.best_effort,
+        "latT3": processing_telemetry.get_avg_latency_ms(Priority.BEST_EFFORT),
+        "w1": worker_pool.get_allocation()[Priority.CRITICAL],
+        "w2": worker_pool.get_allocation()[Priority.NORMAL],
+        "w3": worker_pool.get_allocation()[Priority.BEST_EFFORT],
+        "w4": 0, # Spare
+        "totalWorkers": w_metrics.total,
+    }
+    # Reconstruct a basic snapshot to query batch_sizer metrics
+    temp_snapshot = SystemSnapshot(queues=q_metrics, workers=w_metrics)
+    batching_metrics = batch_sizer.get_metrics(temp_snapshot, pressure_state, 50.0)
+    
+    return {
+        "metrics": metrics,
+        "infraMetrics": infraMetrics,
+        "shedStats": adaptive_metrics.shed_stats,
+        "batching": batching_metrics.model_dump() if hasattr(batching_metrics, 'model_dump') else batching_metrics.dict(),
+        "recentEvents": list(adaptive_metrics.recent_events),
+        "actual_ingress_rate": actual_ingress_rate,
+        "ingress_rate": actual_ingress_rate,
+        "ingressRate": actual_ingress_rate,
+    }
 
 
 def main() -> None:

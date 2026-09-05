@@ -34,10 +34,25 @@ def classify(target: Union[Event, str]) -> Priority:
     raise TypeError(f"Expected Event or str, got {type(target).__name__}")
 
 
+from pipeline.classifier import (
+    calculate_dynamic_score,
+    classify_with_lineage,
+    DEFAULT_BASE_PRIORITY_WEIGHTS,
+    DEFAULT_W1,
+    DEFAULT_W2,
+    DEFAULT_W3,
+)
+
 __all__ = [
     "Priority",
     "EVENT_TYPE_PRIORITY_MAP",
     "classify_event_type",
     "classify_event",
     "classify",
+    "calculate_dynamic_score",
+    "classify_with_lineage",
+    "DEFAULT_BASE_PRIORITY_WEIGHTS",
+    "DEFAULT_W1",
+    "DEFAULT_W2",
+    "DEFAULT_W3",
 ]

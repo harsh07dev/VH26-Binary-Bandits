@@ -44,6 +44,28 @@ class Event(BaseModel):
             self.priority = classify_event_type(self.event_type)
         return self.priority
 
+    @property
+    def audit(self) -> Optional[dict[str, Any]]:
+        """Access decision lineage metadata stored in payload['_audit'] if present."""
+        return self.payload.get("_audit")
+
+    def attach_audit(
+        self,
+        rule_id: str,
+        score: float,
+        evaluated_at: Optional[float] = None,
+        features: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Enrich Event.payload with an _audit dictionary holding decision lineage metadata."""
+        audit_metadata: dict[str, Any] = {
+            "rule_id": str(rule_id),
+            "score": round(float(score), 4),
+            "evaluated_at": float(evaluated_at if evaluated_at is not None else time.time()),
+            "features": dict(features) if features is not None else {},
+        }
+        self.payload["_audit"] = audit_metadata
+        return audit_metadata
+
 
 class EventBatch(BaseModel):
     """Batch of events for bulk ingestion."""

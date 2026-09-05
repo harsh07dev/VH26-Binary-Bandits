@@ -9,6 +9,8 @@ Validates:
 
 from __future__ import annotations
 
+import asyncio
+import time
 import pytest
 from contracts.events import Event
 from contracts.priorities import Priority
@@ -283,3 +285,123 @@ async def test_benchmark_orchestration_fast(tmp_path):
     assert "| Metric | Naive FIFO Pipeline | PulseFlow Pipeline |" in content
     assert base["total_ingested"] == pulse["total_ingested"]
     assert pulse["critical_events_lost"] == 0
+
+
+# =========================================================================
+# 4. Chaos Fault Injection & P100 Anti-Starvation Cap Tests
+# =========================================================================
+
+@pytest.mark.asyncio
+async def test_chaos_worker_crash_fault_injection_preserves_critical_invariant():
+    """Chaos Fault-Injection Test:
+    
+    Forcefully terminates consumer worker tasks mid-surge during a 20x surge workload.
+    Asserts that InFlightTracker intercepts un-ACKed items, re-queues them to CRITICAL,
+    and guarantees the golden invariant: critical_events_lost == 0.
+    """
+    from pipeline.consumer import InFlightTracker
+    from pipeline.queues.queue_manager import QueueManager
+
+    qm = QueueManager()
+    tracker = InFlightTracker(qm=qm, timeout_sec=1.0)
+
+    # 1. Generate 20x surge batch containing critical orders and payments
+    total_critical_count = 30
+    critical_events = [
+        generate_single_event("ORDER" if i % 2 == 0 else "PAYMENT")
+        for i in range(total_critical_count)
+    ]
+
+    for ev in critical_events:
+        await qm.enqueue(ev, Priority.CRITICAL)
+
+    processed_events = []
+
+    # 2. Worker task that processes a few events, then abruptly crashes mid-surge
+    async def crashing_worker():
+        while not qm.critical_queue.is_empty():
+            ev = await qm.critical_queue.dequeue()
+            tracker.track(ev)
+            await asyncio.sleep(0.01)
+            # Crash intentionally after tracking 10 events without ACKing them
+            if len(processed_events) == 5:
+                raise RuntimeError("CHAOS INJECTION: Worker thread kernel panic mid-surge!")
+            processed_events.append(ev)
+            tracker.ack(ev.event_id)
+
+    # Launch crashing worker
+    task = asyncio.create_task(crashing_worker())
+    with pytest.raises(RuntimeError, match="CHAOS INJECTION"):
+        await task
+
+    # Assert un-ACKed events are retained in InFlightTracker buffer
+    assert tracker.in_flight_count > 0
+
+    # 3. Simulate Timeout Auto-Recovery Monitor trigger
+    recovered = await tracker.check_and_recover_timeouts(now=time.time() + 5.0)
+    assert len(recovered) > 0
+    assert tracker.in_flight_count == 0
+
+    # 4. Spawn replacement worker to finish the recovered queue
+    async def replacement_worker():
+        while not qm.critical_queue.is_empty():
+            ev = await qm.critical_queue.dequeue()
+            tracker.track(ev)
+            processed_events.append(ev)
+            tracker.ack(ev.event_id)
+
+    await replacement_worker()
+
+    # 5. Golden Invariant: Every critical event was preserved and processed!
+    unique_processed_ids = {e.event_id for e in processed_events}
+    original_ids = {e.event_id for e in critical_events}
+    assert unique_processed_ids == original_ids
+    critical_events_lost = len(original_ids - unique_processed_ids)
+    assert critical_events_lost == 0, "Golden Invariant Violated: Critical events lost during chaos crash!"
+
+
+def test_p100_max_wait_time_and_anti_starvation_metrics():
+    """Verify P100 metric computation and that Lazy Priority Aging caps worst-case wait time."""
+    from benchmark.metrics.latency import LatencyStats, analyze_latencies
+    from pipeline.dispatcher import Dispatcher
+    from pipeline.queues.queue_manager import QueueManager
+
+    # 1. P100 calculation on raw samples
+    samples = [10.0, 20.0, 50.0, 150.0, 320.0]
+    stats = LatencyStats.from_samples(samples)
+    assert stats.p100_ms == 320.0
+    assert stats.max_ms == 320.0
+
+    # 2. Anti-starvation test: Priority Aging caps P100 for BEST_EFFORT events
+    qm = QueueManager()
+    disp = Dispatcher(qm=qm, aging_threshold_sec=5.0)
+
+    # Ingest aged BEST_EFFORT click (age = 6.0s)
+    now = 1000.0
+    click = Event(
+        event_type="CLICK",
+        timestamp=now - 6.0,
+        received_at=now - 6.0,
+    )
+    qm.best_effort_queue.enqueue_nowait(click)
+
+    # Ingest continuous stream of NORMAL events
+    for i in range(10):
+        qm.normal_queue.enqueue_nowait(Event(event_type="CART_ADD", timestamp=now - 0.5))
+
+    # Pull from NORMAL: Priority Aging ensures aged BEST_EFFORT is popped first!
+    popped = disp.pop_normal_nowait(now=now)
+    assert popped.event_id == click.event_id
+    assert popped.priority == Priority.NORMAL
+    # Starvation capped: wait time did not exceed aging threshold + delta
+    assert popped.payload["_aging_wait_time"] == 6.0
+
+    # Tiered latency report verification with P100
+    report = analyze_latencies({
+        Priority.CRITICAL: [5.0, 8.0],
+        Priority.NORMAL: [25.0, 30.0],
+        Priority.BEST_EFFORT: [100.0, 150.0],
+    })
+    assert report.best_effort.p100_ms == 150.0
+    assert report.critical.p100_ms == 8.0
+    assert report.overall.p100_ms == 150.0

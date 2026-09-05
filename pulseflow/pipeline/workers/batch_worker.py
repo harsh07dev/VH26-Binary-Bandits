@@ -12,6 +12,7 @@ from contracts.events import Event
 from pipeline.queues.base_queue import LaneQueue
 from pipeline.processing.event_processor import EventProcessor
 from pipeline.workers.worker import BaseWorker, WorkerState
+from pipeline.consumer import in_flight_tracker
 
 
 class BatchWorker(BaseWorker):
@@ -30,22 +31,27 @@ class BatchWorker(BaseWorker):
         self.batch_size = max(1, batch_size)
         self.batch_timeout_ms = max(1.0, batch_timeout_ms)
 
+    def set_batch_params(self, batch_size: int, batch_timeout_ms: float) -> None:
+        """Dynamically update batch parameters for the next batch collection."""
+        self.batch_size = max(1, batch_size)
+        self.batch_timeout_ms = max(1.0, batch_timeout_ms)
+
     async def _run_loop(self) -> None:
         """Continuously collect micro-batches and process them in bulk."""
-        timeout_sec = self.batch_timeout_ms / 1000.0
 
         while not self._stop_event.is_set():
             await self._pause_event.wait()
             if self._stop_event.is_set():
                 break
 
+            current_timeout_sec = self.batch_timeout_ms / 1000.0
             batch: List[Event] = []
 
             # 1. Wait for the first event in the batch
             try:
                 first_event = await asyncio.wait_for(
                     self.queue.get(),
-                    timeout=min(0.2, timeout_sec),
+                    timeout=min(0.2, current_timeout_sec),
                 )
                 batch.append(first_event)
             except asyncio.TimeoutError:
@@ -53,11 +59,13 @@ class BatchWorker(BaseWorker):
             except asyncio.CancelledError:
                 break
 
-            # 2. Gather subsequent events until batch_size is reached or timeout expires
+            # 2. Gather subsequent events until current_batch_size is reached or timeout expires
+            current_batch_size = self.batch_size
+            
             batch_start_time = time.time()
-            while len(batch) < self.batch_size and not self._stop_event.is_set():
+            while len(batch) < current_batch_size and not self._stop_event.is_set():
                 elapsed = time.time() - batch_start_time
-                remaining = timeout_sec - elapsed
+                remaining = current_timeout_sec - elapsed
                 if remaining <= 0:
                     break
 
@@ -72,12 +80,17 @@ class BatchWorker(BaseWorker):
 
             # 3. Process the collected batch
             if batch:
+                for event in batch:
+                    in_flight_tracker.track(event)
+
                 self.state = WorkerState.BUSY
                 try:
                     results = await self.processor.process_batch(batch, mode="BATCH")
                     self.batches_processed += 1
                     self.events_processed += len(batch)
                     self.total_latency_ms += sum(r.latency_ms for r in results)
+                    for event in batch:
+                        in_flight_tracker.ack(event.event_id)
                 except Exception:
                     self.errors_count += 1
                 finally:

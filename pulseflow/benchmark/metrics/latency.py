@@ -36,6 +36,7 @@ class LatencyStats:
     p90_ms: float = 0.0
     p95_ms: float = 0.0
     p99_ms: float = 0.0
+    p100_ms: float = 0.0
     max_ms: float = 0.0
     min_ms: float = 0.0
 
@@ -43,6 +44,7 @@ class LatencyStats:
     def from_samples(cls, samples: list[float]) -> "LatencyStats":
         if not samples:
             return cls()
+        max_val = round(max(samples), 2)
         return cls(
             sample_count=len(samples),
             avg_ms=round(sum(samples) / len(samples), 2),
@@ -50,7 +52,8 @@ class LatencyStats:
             p90_ms=calculate_percentile(samples, 90),
             p95_ms=calculate_percentile(samples, 95),
             p99_ms=calculate_percentile(samples, 99),
-            max_ms=round(max(samples), 2),
+            p100_ms=max_val,
+            max_ms=max_val,
             min_ms=round(min(samples), 2),
         )
 

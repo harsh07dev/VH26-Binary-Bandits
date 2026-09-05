@@ -1,0 +1,69 @@
+import { Eye, Clock } from 'lucide-react'
+
+const sections = [
+  {
+    label: 'Observability',
+    items: [
+      { id: 'observability', label: 'Observability', icon: Eye },
+    ],
+  },
+  {
+    label: 'Data',
+    items: [
+      { id: 'history', label: 'History', icon: Clock },
+    ],
+  },
+]
+
+/* ─ Logo mark — waveform bars (matches Machine 1 exactly) ─── */
+function PulseLogo() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1"  y="8"  width="2" height="4" rx="1" fill="white" opacity="0.7" />
+      <rect x="4"  y="5"  width="2" height="7" rx="1" fill="white" opacity="0.85" />
+      <rect x="7"  y="2"  width="2" height="10" rx="1" fill="white" />
+      <rect x="10" y="5"  width="2" height="7" rx="1" fill="white" opacity="0.85" />
+      <rect x="13" y="8"  width="2" height="4" rx="1" fill="white" opacity="0.7" />
+    </svg>
+  )
+}
+
+export default function Sidebar({ activeNav, onNavChange }) {
+  return (
+    <aside className="sidebar">
+
+      {/* ── Brand ─────────────────────────────────────────── */}
+      <div className="sidebar-brand">
+        <div className="sidebar-brand-icon">
+          <PulseLogo />
+        </div>
+        <span className="sidebar-brand-name">PulseFlow</span>
+      </div>
+
+      {/* ── Nav sections ──────────────────────────────────── */}
+      <div className="sidebar-section">
+        {sections.map((section, si) => (
+          <div key={section.label}>
+            {si > 0 && <div className="sidebar-divider" />}
+            <div className="sidebar-section-label">{section.label}</div>
+            <nav className="sidebar-nav">
+              {section.items.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  id={`nav-${id}`}
+                  className={`sidebar-nav-item${activeNav === id ? ' active' : ''}`}
+                  onClick={() => onNavChange(id)}
+                  title={label}
+                >
+                  <Icon size={14} className="sidebar-nav-icon" strokeWidth={1.8} />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </nav>
+          </div>
+        ))}
+      </div>
+
+    </aside>
+  )
+}
