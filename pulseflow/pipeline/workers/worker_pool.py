@@ -136,6 +136,8 @@ class WorkerPool:
                     expected_stream = (current_mode == "STREAM")
                     if is_stream == expected_stream:
                         workers_to_keep.append(w)
+                        if isinstance(w, BatchWorker):
+                            w.set_batch_params(b_size, b_timeout)
                     else:
                         workers_to_retire.append(w)
 

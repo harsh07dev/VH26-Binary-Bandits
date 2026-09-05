@@ -11,7 +11,7 @@
 [![React](https://img.shields.io/badge/React-18-0ea5e9?style=flat-square&logo=react&logoColor=white)](https://react.dev)
 [![AsyncIO](https://img.shields.io/badge/AsyncIO-Concurrent-6366f1?style=flat-square)](https://docs.python.org/3/library/asyncio.html)
 [![SQLite](https://img.shields.io/badge/Storage-SQLite-003b57?style=flat-square&logo=sqlite&logoColor=white)](https://sqlite.org)
-[![Tests](https://img.shields.io/badge/Tests-230%20passing-22c55e?style=flat-square)](https://pytest.org)
+
 
 
 </div>

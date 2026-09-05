@@ -21,6 +21,7 @@ class PressureSnapshot(BaseModel):
     processingRate: float = Field(..., description="Processing event rate (events/sec)")
     workerUtilization: float = Field(..., description="Overall worker pool utilization")
     latency: float = Field(..., description="Average processing latency (ms)")
+    queueGrowthRate: float = Field(default=0.0, description="Rate of change of queue depth (dq/dt)")
     timestamp: float = Field(default_factory=time.time, description="Time of calculation")
 
 
@@ -75,6 +76,8 @@ class PressureCalculator:
         else:
             state = PressureState.NORMAL
             
+        dq_dt = getattr(snapshot.queues, 'total_growth_rate', 0.0)
+            
         return PressureSnapshot(
             pressureState=state,
             pressureScore=round(score, 4),
@@ -83,5 +86,6 @@ class PressureCalculator:
             processingRate=snapshot.processing_rate,
             workerUtilization=snapshot.workers.utilization,
             latency=snapshot.avg_latency_ms,
+            queueGrowthRate=dq_dt,
             timestamp=time.time()
         )

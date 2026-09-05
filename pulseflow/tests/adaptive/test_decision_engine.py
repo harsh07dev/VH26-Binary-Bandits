@@ -224,3 +224,58 @@ def test_metrics_tracker_sample_stats():
     assert adaptive_metrics.shed_stats["sampled_kept"] == 1
     assert adaptive_metrics.shed_stats["sampled_dropped"] == 1
 
+
+@pytest.mark.asyncio
+async def test_decision_engine_adaptive_batching_integration():
+    from adaptive.allocation.batch_sizer import batch_sizer
+    
+    # Temporarily bypass hysteresis for easy testing
+    original_consecutive = batch_sizer.config.consecutive_samples_required
+    batch_sizer.config.consecutive_samples_required = 1
+    
+    # 1. Stable queue -> batch remains stable
+    # Force cooldown to expire
+    batch_sizer._last_adjustment_time = 0.0
+    
+    # Setup worker pool with NORMAL workers
+    await worker_pool.start(initial_allocation={Priority.NORMAL: 2})
+    
+    snapshot_stable = build_snapshot(queue_depth=50, util=0.5, latency=100.0)
+    # inject growth rate
+    snapshot_stable.queues.normal_growth_rate = 1.0 # Stable (between -2 and 5)
+    
+    # Process event
+    event = Event(event_type="CART_ADD")
+    await DecisionEngine.process_event(event, snapshot_stable)
+    
+    workers = worker_pool.get_workers(Priority.NORMAL)
+    initial_batch_size = workers[0].batch_size
+    assert initial_batch_size == 50 # Default min batch size
+    
+    # 2. Queue Growth -> batch increases
+    batch_sizer._last_adjustment_time = 0.0
+    snapshot_grow = build_snapshot(queue_depth=100, util=0.8, latency=200.0)
+    snapshot_grow.queues.normal_growth_rate = 10.0 # Growing > 5.0
+    
+    await DecisionEngine.process_event(event, snapshot_grow)
+    
+    workers = worker_pool.get_workers(Priority.NORMAL)
+    increased_batch_size = workers[0].batch_size
+    assert increased_batch_size > initial_batch_size
+    assert increased_batch_size == 75 # Next step up from 50
+    
+    # 3. Queue Drain -> batch decreases
+    batch_sizer._last_adjustment_time = 0.0
+    snapshot_drain = build_snapshot(queue_depth=80, util=0.6, latency=150.0)
+    snapshot_drain.queues.normal_growth_rate = -5.0 # Draining < -2.0
+    
+    await DecisionEngine.process_event(event, snapshot_drain)
+    
+    workers = worker_pool.get_workers(Priority.NORMAL)
+    decreased_batch_size = workers[0].batch_size
+    assert decreased_batch_size < increased_batch_size
+    assert decreased_batch_size == 50 # Stepped down back to 50
+    
+    # Restore config
+    batch_sizer.config.consecutive_samples_required = original_consecutive
+

@@ -21,6 +21,10 @@ class PipelineConfig:
     # Persistence
     db_path: str = "pulseflow.db"
 
+    # Queue Backend (asyncio or redis)
+    queue_backend: str = "asyncio"
+    redis_url: str = "redis://localhost:6379"
+
     # Queue sizing: finite capacity (e.g. 1000) for pressure metrics; 0 = unbounded
     queue_capacity: int = 1000
 
@@ -40,6 +44,8 @@ class PipelineConfig:
             host=os.getenv("PULSEFLOW_HOST", "0.0.0.0"),
             port=int(os.getenv("PULSEFLOW_PORT", "8000")),
             db_path=os.getenv("PULSEFLOW_DB_PATH", "pulseflow.db"),
+            queue_backend=os.getenv("PULSEFLOW_QUEUE_BACKEND", "asyncio"),
+            redis_url=os.getenv("REDIS_URL", "redis://localhost:6379"),
             queue_capacity=int(os.getenv("PULSEFLOW_QUEUE_CAPACITY", "1000")),
             critical_workers=int(os.getenv("PULSEFLOW_CRITICAL_WORKERS", "2")),
             normal_workers=int(os.getenv("PULSEFLOW_NORMAL_WORKERS", "4")),

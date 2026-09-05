@@ -19,6 +19,7 @@ from typing import Any, Dict, Optional, Set, Union
 
 from contracts.events import Event
 from contracts.priorities import Priority
+from pipeline.queues.abstract_queue import QueueEmpty
 from pipeline.queues.queue_manager import QueueManager, queue_manager
 
 # Strictly stateless event types eligible for priority aging
@@ -112,7 +113,7 @@ class Dispatcher:
         # 4. Promote and pop the aged item
         try:
             event = best_effort_queue.dequeue_nowait()
-        except asyncio.QueueEmpty:
+        except QueueEmpty:
             return None
 
         # Update event priority and attach promotion metadata

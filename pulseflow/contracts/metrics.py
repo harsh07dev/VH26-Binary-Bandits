@@ -14,6 +14,9 @@ class QueueMetrics(BaseModel):
     critical: int = Field(default=0, description="Depth of CRITICAL queue")
     normal: int = Field(default=0, description="Depth of NORMAL queue")
     best_effort: int = Field(default=0, description="Depth of BEST_EFFORT queue")
+    total_growth_rate: float = Field(default=0.0, description="Combined rate of change of queue depth (dq/dt)")
+    normal_growth_rate: float = Field(default=0.0, description="Rate of change of NORMAL queue depth (dq/dt)")
+    best_effort_growth_rate: float = Field(default=0.0, description="Rate of change of BEST_EFFORT queue depth (dq/dt)")
 
     @property
     def total_depth(self) -> int:
@@ -31,6 +34,25 @@ class WorkerMetrics(BaseModel):
     utilization: float = Field(default=0.0, description="Worker pool utilization (0.0 to 1.0)")
 
 
+class BatchingLaneMetrics(BaseModel):
+    """Telemetry for a specific adaptive batching lane."""
+    current_batch_size: int = Field(default=0)
+    previous_batch_size: int = Field(default=0)
+    queue_depth: int = Field(default=0)
+    growth_rate: float = Field(default=0.0)
+    batch_timeout_ms: float = Field(default=0.0)
+    increases_count: int = Field(default=0)
+    decreases_count: int = Field(default=0)
+    last_change_timestamp: float = Field(default=0.0)
+    pressure_state: str = Field(default="NORMAL")
+
+
+class AdaptiveBatchingMetrics(BaseModel):
+    """Real-time adaptive batching telemetry per lane."""
+    normal: BatchingLaneMetrics = Field(default_factory=BatchingLaneMetrics)
+    best_effort: BatchingLaneMetrics = Field(default_factory=BatchingLaneMetrics)
+
+
 class SystemSnapshot(BaseModel):
     """Complete snapshot of pipeline state exposed via pipeline.get_system_snapshot()."""
     timestamp: float = Field(
@@ -45,6 +67,10 @@ class SystemSnapshot(BaseModel):
     workers: WorkerMetrics = Field(
         default_factory=WorkerMetrics,
         description="Detailed worker allocation per lane",
+    )
+    batching: Optional[AdaptiveBatchingMetrics] = Field(
+        default=None,
+        description="Adaptive batching telemetry",
     )
 
     # Throughput and Latency

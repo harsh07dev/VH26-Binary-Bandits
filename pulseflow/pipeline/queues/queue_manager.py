@@ -5,7 +5,8 @@ Provides automatic routing of events by priority, centralized dequeueing,
 depth inspection, and queue metrics export for the adaptive engine and dashboard.
 """
 
-from typing import Optional, Union, Dict
+from typing import Optional, Union, Dict, List
+import time
 from contracts.priorities import Priority
 from contracts.events import Event
 from contracts.metrics import QueueMetrics
@@ -13,6 +14,35 @@ from pipeline.queues.base_queue import LaneQueue
 from pipeline.queues.critical_queue import CriticalQueue
 from pipeline.queues.normal_queue import NormalQueue
 from pipeline.queues.best_effort_queue import BestEffortQueue
+from pipeline.queues.redis_queue import RedisLaneQueue
+from pipeline.config import config
+
+
+class QueueGrowthTracker:
+    """Tracks queue depth over time to calculate growth rate (dq/dt)."""
+    
+    def __init__(self, window_size: int = 5):
+        self.window_size = window_size
+        self._samples: List[tuple[float, int]] = []
+        
+    def add_sample(self, depth: int) -> None:
+        now = time.time()
+        self._samples.append((now, depth))
+        if len(self._samples) > self.window_size:
+            self._samples.pop(0)
+            
+    def get_growth_rate(self) -> float:
+        if len(self._samples) < 2:
+            return 0.0
+        
+        t0, d0 = self._samples[0]
+        t1, d1 = self._samples[-1]
+        
+        dt = t1 - t0
+        if dt <= 0:
+            return 0.0
+            
+        return (d1 - d0) / dt
 
 
 class QueueManager:
@@ -25,15 +55,24 @@ class QueueManager:
         best_effort_queue: Optional[BestEffortQueue] = None,
         default_capacity: Optional[int] = None,
     ) -> None:
-        self.critical_queue = critical_queue or CriticalQueue(capacity=default_capacity)
-        self.normal_queue = normal_queue or NormalQueue(capacity=default_capacity)
-        self.best_effort_queue = best_effort_queue or BestEffortQueue(capacity=default_capacity)
+        if config.queue_backend.lower() == "redis":
+            self.critical_queue = critical_queue or RedisLaneQueue(priority=Priority.CRITICAL, redis_url=config.redis_url, capacity=default_capacity)
+            self.normal_queue = normal_queue or RedisLaneQueue(priority=Priority.NORMAL, redis_url=config.redis_url, capacity=default_capacity)
+            self.best_effort_queue = best_effort_queue or RedisLaneQueue(priority=Priority.BEST_EFFORT, redis_url=config.redis_url, capacity=default_capacity)
+        else:
+            self.critical_queue = critical_queue or CriticalQueue(capacity=default_capacity)
+            self.normal_queue = normal_queue or NormalQueue(capacity=default_capacity)
+            self.best_effort_queue = best_effort_queue or BestEffortQueue(capacity=default_capacity)
 
         self._queues: Dict[Priority, LaneQueue] = {
             Priority.CRITICAL: self.critical_queue,
             Priority.NORMAL: self.normal_queue,
             Priority.BEST_EFFORT: self.best_effort_queue,
         }
+        
+        self.growth_tracker = QueueGrowthTracker()
+        self.normal_growth_tracker = QueueGrowthTracker()
+        self.best_effort_growth_tracker = QueueGrowthTracker()
 
     def _resolve_priority(self, priority: Union[Priority, str]) -> Priority:
         """Resolve a priority enum or string safely."""
@@ -142,10 +181,17 @@ class QueueManager:
 
     def queue_metrics(self) -> QueueMetrics:
         """Generate a snapshot of queue depths conforming to the shared QueueMetrics contract."""
+        self.growth_tracker.add_sample(self.total_depth())
+        self.normal_growth_tracker.add_sample(self.normal_queue.depth())
+        self.best_effort_growth_tracker.add_sample(self.best_effort_queue.depth())
+        
         return QueueMetrics(
             critical=self.critical_queue.depth(),
             normal=self.normal_queue.depth(),
             best_effort=self.best_effort_queue.depth(),
+            total_growth_rate=self.growth_tracker.get_growth_rate(),
+            normal_growth_rate=self.normal_growth_tracker.get_growth_rate(),
+            best_effort_growth_rate=self.best_effort_growth_tracker.get_growth_rate()
         )
 
     def capacity(self, priority: Union[Priority, str]) -> Optional[int]:

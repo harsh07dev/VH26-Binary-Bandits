@@ -8,13 +8,14 @@ import asyncio
 from typing import Optional
 from contracts.priorities import Priority
 from contracts.events import Event
+from pipeline.queues.abstract_queue import AbstractLaneQueue, QueueEmpty, QueueFull
 
 
-class LaneQueue:
+class LaneQueue(AbstractLaneQueue):
     """Asynchronous in-memory queue for an individual priority lane."""
 
     def __init__(self, priority: Priority, maxsize: int = 0, capacity: Optional[int] = None) -> None:
-        self.priority = priority
+        super().__init__(priority=priority, capacity=capacity)
         self.maxsize = maxsize
         # Explicit finite capacity (for pressure calculations). If 0 or None, treated as unbounded (None)
         if capacity is not None:
@@ -53,11 +54,14 @@ class LaneQueue:
     def enqueue_nowait(self, event: Event) -> None:
         """Enqueue an event immediately without awaiting.
         
-        Raises asyncio.QueueFull if the queue has maxsize and is full.
+        Raises QueueFull if the queue has maxsize and is full.
         """
         if event.priority is None:
             event.priority = self.priority
-        self.queue.put_nowait(event)
+        try:
+            self.queue.put_nowait(event)
+        except asyncio.QueueFull as e:
+            raise QueueFull("Queue is at capacity") from e
         self._enqueued_count += 1
 
     # Aliases matching asyncio.Queue naming
@@ -78,9 +82,12 @@ class LaneQueue:
     def dequeue_nowait(self) -> Event:
         """Dequeue the next event immediately without awaiting.
         
-        Raises asyncio.QueueEmpty if empty.
+        Raises QueueEmpty if empty.
         """
-        event = self.queue.get_nowait()
+        try:
+            event = self.queue.get_nowait()
+        except asyncio.QueueEmpty as e:
+            raise QueueEmpty("Queue is empty") from e
         self._dequeued_count += 1
         return event
 
