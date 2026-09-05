@@ -267,21 +267,11 @@ async def get_adaptive_metrics() -> Dict[str, Any]:
     proc_rate = processing_telemetry.get_processing_rate()
     actual_ingress_rate = rate_tracker.get_rate()
     
-    now = time.time()
     if adaptive_metrics.latest_decision:
-        last_decision_age = now - getattr(adaptive_metrics.latest_decision, "timestamp", now)
-        # If no events have arrived recently (> 5s) and ingress has dropped to 0 and queues are clear,
-        # cool down back to NORMAL instead of staying stuck in EXTREME from past spikes.
-        if last_decision_age > 5.0 and actual_ingress_rate == 0.0 and q_metrics.total_depth == 0:
-            pressure_state = "NORMAL"
-            pressure_score = 0.0
-            is_spike = False
-            processing_cost = "LOW"
-        else:
-            pressure_state = adaptive_metrics.latest_decision.pressure_state.value
-            pressure_score = adaptive_metrics.latest_decision.pressure_score
-            is_spike = pressure_state != "NORMAL"
-            processing_cost = "HIGH" if pressure_state == "EXTREME" else ("MEDIUM" if pressure_state == "HIGH" else "LOW")
+        pressure_state = adaptive_metrics.latest_decision.pressure_state.value
+        pressure_score = adaptive_metrics.latest_decision.pressure_score
+        is_spike = pressure_state != "NORMAL"
+        processing_cost = "HIGH" if pressure_state == "EXTREME" else ("MEDIUM" if pressure_state == "HIGH" else "LOW")
         
     metrics = {
         "queueSize": q_metrics.total_depth,

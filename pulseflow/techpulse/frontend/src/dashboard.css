@@ -1,57 +1,48 @@
 /* ============================================================
-   PulseFlow — Machine 1: TechPulse Load Generator
-   Enterprise SaaS Styling · Cohesive with Observability
+   PulseFlow — Machine 1: Load Spiker Dashboard
+   Additional CSS extending the design system
    ============================================================ */
 
-/* ─── Spike Control Deck ─────────────────────────────────── */
+/* ─── Spike Control Card ─────────────────────────────────── */
 .spike-btn-group {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-3);
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
 }
 
 .spike-btn {
-  position: relative;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
-  padding: 14px 14px;
+  gap: 4px;
+  padding: var(--space-3) var(--space-3);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
   text-align: left;
   font-family: inherit;
   box-shadow: var(--shadow-xs);
   min-width: 0;
-  user-select: none;
 }
 
 .spike-btn:hover {
-  border-color: rgba(99, 91, 255, 0.4);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 14px -2px rgba(99, 91, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.02);
+  border-color: var(--color-indigo-400);
+  background: var(--color-indigo-50);
+  box-shadow: var(--shadow-sm);
 }
 
 .spike-btn.selected {
   border-color: var(--color-indigo-500);
-  background: linear-gradient(135deg, rgba(99, 91, 255, 0.04) 0%, rgba(255, 255, 255, 1) 100%);
-  box-shadow: 0 0 0 2px rgba(99, 91, 255, 0.25), 0 4px 14px rgba(99, 91, 255, 0.08);
-  transform: translateY(-1px);
-}
-
-.spike-btn-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
+  background: var(--color-indigo-50);
+  box-shadow: 0 0 0 2px var(--color-indigo-100);
 }
 
 .spike-btn-amount {
-  font-size: 22px;
-  font-weight: 800;
+  font-size: 18px;
+  font-weight: 700;
   color: var(--color-text-primary);
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
@@ -62,53 +53,43 @@
   color: var(--color-indigo-600);
 }
 
-.spike-btn-multiplier {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: var(--radius-full);
-  background: var(--color-gray-100);
-  color: var(--color-text-secondary);
-}
-
-.spike-btn.selected .spike-btn-multiplier {
-  background: rgba(99, 91, 255, 0.12);
-  color: var(--color-indigo-700);
-}
-
 .spike-btn-label {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--color-text-primary);
-  line-height: 1.2;
-}
-
-.spike-btn-subtext {
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--color-text-tertiary);
-  margin-top: 2px;
-  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1;
 }
 
-/* Selected count readout banner */
+.spike-btn.selected .spike-btn-label {
+  color: var(--color-indigo-500);
+}
+
+/* Selected count readout */
 .spike-selected-readout {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
+  align-items: baseline;
+  gap: 6px;
+  padding: var(--space-3) var(--space-4);
   background: var(--color-gray-50);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
 .spike-selected-number {
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
   color: var(--color-indigo-600);
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+
+.spike-selected-unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
 }
 
 /* ─── CTA Inject Button ──────────────────────────────────── */
@@ -118,213 +99,95 @@
   justify-content: center;
   gap: var(--space-2);
   width: 100%;
-  padding: 12px var(--space-5);
+  padding: 11px var(--space-4);
   background: var(--color-indigo-500);
   color: white;
-  border: 1px solid var(--color-indigo-600);
+  border: none;
   border-radius: var(--radius-md);
   font-family: inherit;
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 2px 8px rgba(99, 91, 255, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(99, 91, 255, 0.25);
 }
 
 .btn-inject:hover {
   background: var(--color-indigo-600);
-  box-shadow: 0 6px 18px rgba(99, 91, 255, 0.4);
-  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(99, 91, 255, 0.35);
 }
 
 .btn-inject:active {
-  transform: translateY(1px);
+  transform: scale(0.99);
   background: var(--color-indigo-700);
 }
 
 .btn-inject:disabled {
-  background: var(--color-gray-200);
+  background: var(--color-gray-300);
   color: var(--color-gray-500);
-  border-color: var(--color-border);
   box-shadow: none;
   cursor: not-allowed;
   transform: none;
 }
 
+/* Surge animation on inject */
+@keyframes surge-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(99, 91, 255, 0.5); }
+  40%  { box-shadow: 0 0 0 8px rgba(99, 91, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 91, 255, 0); }
+}
+
 .btn-inject.surging {
-  background: linear-gradient(90deg, #4f46e5 0%, #7c3aed 50%, #4f46e5 100%);
-  background-size: 200% 100%;
-  animation: pulse-strobe-btn 1s linear infinite;
-  box-shadow: 0 0 16px rgba(124, 58, 237, 0.5);
+  animation: surge-flash 0.5s ease-out;
 }
 
-@keyframes pulse-strobe-btn {
-  0%   { background-position: 0% 50%; }
-  100% { background-position: 200% 50%; }
-}
-
-/* ─── 4-Column Compact Metric Tiles ──────────────────────── */
+/* ─── Metrics Row ────────────────────────────────────────── */
 .metrics-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--space-3);
 }
 
 .metric-tile {
-  padding: 14px 16px;
+  padding: var(--space-4);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-xs);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-
-.metric-tile:hover {
-  border-color: rgba(99, 91, 255, 0.35);
-  box-shadow: 0 6px 16px -2px rgba(99, 91, 255, 0.08);
-  transform: translateY(-2px);
 }
 
 .metric-tile-label {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--color-text-tertiary);
   margin-bottom: var(--space-2);
 }
 
 .metric-tile-value {
-  font-size: 22px;
-  font-weight: 800;
+  font-size: 20px;
+  font-weight: 700;
   letter-spacing: -0.03em;
   color: var(--color-text-primary);
   font-variant-numeric: tabular-nums;
-  line-height: 1.1;
+  line-height: 1;
 }
 
 .metric-tile-value.accent { color: var(--color-indigo-600); }
 .metric-tile-value.success { color: var(--color-success-text); }
 .metric-tile-value.warning { color: var(--color-warning-text); }
-.metric-tile-value.error   { color: var(--color-error); }
 
 .metric-tile-sub {
   font-size: 11px;
   color: var(--color-text-tertiary);
-  margin-top: 6px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  margin-top: 4px;
+  font-weight: 400;
 }
 
-/* ─── Calculated Projection & Stress Meter ───────────────── */
-.calc-block {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-}
-
-.calc-row {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.calc-row:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.calc-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
-}
-
-.calc-value {
-  font-size: 19px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: var(--color-text-primary);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-}
-
-.calc-delta {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-success-text);
-  margin-top: 2px;
-}
-
-.calc-delta.up {
-  color: var(--color-indigo-600);
-}
-
-/* Multi-Segment Stress Bar */
-.stress-gauge-track {
-  width: 100%;
-  height: 7px;
-  background: var(--color-gray-100);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-  display: flex;
-  gap: 2px;
-  margin-top: 6px;
-}
-
-.stress-gauge-fill {
-  height: 100%;
-  border-radius: var(--radius-full);
-  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s ease;
-}
-
-/* ─── Egress Real-Time Waveform ──────────────────────────── */
-.egress-waveform-container {
-  position: relative;
-  width: 100%;
-  height: 220px;
-  border-radius: var(--radius-sm);
-  background: radial-gradient(ellipse at 50% 20%, rgba(99, 91, 255, 0.03) 0%, rgba(248, 250, 252, 0.6) 100%);
-  border: 1px solid rgba(226, 232, 240, 0.85);
-  overflow: hidden;
-}
-
-.egress-waveform-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(to right, rgba(99, 91, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(99, 91, 255, 0.04) 1px, transparent 1px);
-  background-size: 28px 28px;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.egress-waveform-scanline {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 2.5px;
-  background: linear-gradient(180deg, transparent 0%, rgba(99, 91, 255, 0.7) 50%, transparent 100%);
-  box-shadow: 0 0 12px rgba(99, 91, 255, 0.85);
-  animation: scanline-sweep 4s linear infinite;
-  pointer-events: none;
-  z-index: 6;
-}
-
-/* ─── Payload Transmission Pipeline ──────────────────────── */
+/* ─── Payload Flow ───────────────────────────────────────── */
 .payload-flow {
   display: flex;
   align-items: center;
@@ -341,31 +204,30 @@
   min-width: 0;
   padding: var(--space-3) var(--space-2);
   border-radius: var(--radius-sm);
-  transition: all 0.25s ease;
+  transition: background var(--transition-base);
   position: relative;
 }
 
 .flow-step.active {
-  background: rgba(99, 91, 255, 0.05);
+  background: var(--color-indigo-50);
 }
 
 .flow-step-icon {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1.5px solid var(--color-border);
   background: var(--color-surface);
-  transition: all 0.25s ease;
+  transition: all var(--transition-base);
   flex-shrink: 0;
 }
 
 .flow-step.active .flow-step-icon {
-  border-color: var(--color-indigo-500);
-  background: var(--color-indigo-50);
-  box-shadow: 0 0 12px rgba(99, 91, 255, 0.2);
+  border-color: var(--color-indigo-400);
+  background: var(--color-indigo-100);
 }
 
 .flow-step.completed .flow-step-icon {
@@ -375,7 +237,7 @@
 
 .flow-step-label {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   text-align: center;
@@ -393,35 +255,14 @@
 }
 
 .flow-connector {
-  flex: 0 0 32px;
-  height: 2px;
+  flex: 0 0 24px;
+  height: 1px;
   background: var(--color-border);
   position: relative;
-  overflow: visible;
 }
 
 .flow-connector.active {
-  background: rgba(99, 91, 255, 0.3);
-}
-
-.flow-connector.active::after {
-  content: '';
-  position: absolute;
-  top: -2px;
-  left: 0;
-  width: 8px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--color-indigo-500);
-  box-shadow: 0 0 8px rgba(99, 91, 255, 0.8);
-  animation: flow-beam-move 0.8s ease-in-out infinite;
-}
-
-@keyframes flow-beam-move {
-  0%   { left: 0%; opacity: 0; }
-  30%  { opacity: 1; }
-  70%  { opacity: 1; }
-  100% { left: 100%; opacity: 0; }
+  background: var(--color-indigo-300);
 }
 
 .flow-connector-arrow {
@@ -430,55 +271,138 @@
   top: -3px;
   width: 0;
   height: 0;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 6px solid var(--color-border);
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-left: 5px solid var(--color-border);
 }
 
 .flow-connector.active .flow-connector-arrow {
-  border-left-color: var(--color-indigo-400);
+  border-left-color: var(--color-indigo-300);
 }
 
-/* ─── Transmission Audit Log Table ───────────────────────── */
-.audit-table-wrapper {
-  width: 100%;
-  overflow-x: auto;
+/* ─── Payload Activity ───────────────────────────────────── */
+.activity-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
 }
 
-.audit-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-xs);
-  text-align: left;
-}
-
-.audit-table th {
+.activity-row:hover {
   background: var(--color-gray-50);
-  color: var(--color-text-tertiary);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--color-border);
 }
 
-.audit-table td {
-  padding: 10px 14px;
+.activity-row + .activity-row {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ─── Simulation Status Banner ───────────────────────────── */
+.sim-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--color-border-subtle);
-  color: var(--color-text-primary);
-  vertical-align: middle;
+  background: var(--color-gray-50);
 }
 
-.audit-table tr:hover td {
-  background: rgba(99, 91, 255, 0.02);
+.sim-status-bar.mode-spike {
+  background: var(--color-indigo-50);
+  border-color: var(--color-indigo-100);
 }
 
-.audit-table tr:last-child td {
+.sim-mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+}
+
+.sim-mode-chip.normal {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+  border: 1px solid var(--color-success-border);
+}
+
+.sim-mode-chip.spike {
+  background: var(--color-indigo-100);
+  color: var(--color-indigo-700);
+  border: 1px solid var(--color-indigo-200);
+}
+
+/* ─── Calculated / Baseline Section ─────────────────────── */
+.calc-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+
+.calc-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.calc-row:last-child {
   border-bottom: none;
+  padding-bottom: 0;
+}
+
+.calc-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.calc-value {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.calc-delta {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-success-text);
+  margin-top: 2px;
+}
+
+.calc-delta.up {
+  color: var(--color-indigo-500);
+}
+
+/* ─── Secondary control buttons ─────────────────────────── */
+.control-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
 }
 
 /* ─── Responsive ─────────────────────────────────────────── */
-@media (max-width: 960px) {
+@media (max-width: 900px) {
   .metrics-row {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -487,4 +411,3 @@
     grid-template-columns: 1fr 1fr;
   }
 }
-
