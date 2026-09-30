@@ -12,6 +12,7 @@ temp/
 *.db
 *.db-shm
 *.db-wal
+*.db-journal
 
 # Node dependencies
 **/node_modules/

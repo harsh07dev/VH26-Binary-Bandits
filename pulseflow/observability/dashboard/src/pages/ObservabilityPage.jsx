@@ -12,19 +12,19 @@ import { telemetryService } from '../api/telemetry'
 
 /* ─── Event Tier Metadata ─────────────────────────────────── */
 const EVENT_TIER_META = {
-  ORDER:             { tier: 'Critical',    color: 'var(--color-indigo-500)', isCritical: true  },
-  PAYMENT:           { tier: 'Critical',    color: 'var(--color-indigo-600)', isCritical: true  },
-  CART_ADD:          { tier: 'Normal',      color: '#3b82f6',                 isCritical: false },
-  INVENTORY_UPDATE:  { tier: 'Normal',      color: '#60a5fa',                 isCritical: false },
-  CLICK:             { tier: 'Best Effort', color: '#94a3b8',                 isCritical: false },
-  PAGE_VIEW:         { tier: 'Best Effort', color: '#cbd5e1',                 isCritical: false },
-  LOG:               { tier: 'Best Effort', color: '#e2e8f0',                 isCritical: false },
+  ORDER: { tier: 'Critical', color: 'var(--color-indigo-500)', isCritical: true },
+  PAYMENT: { tier: 'Critical', color: 'var(--color-indigo-600)', isCritical: true },
+  CART_ADD: { tier: 'Normal', color: '#3b82f6', isCritical: false },
+  INVENTORY_UPDATE: { tier: 'Normal', color: '#60a5fa', isCritical: false },
+  CLICK: { tier: 'Best Effort', color: '#94a3b8', isCritical: false },
+  PAGE_VIEW: { tier: 'Best Effort', color: '#cbd5e1', isCritical: false },
+  LOG: { tier: 'Best Effort', color: '#e2e8f0', isCritical: false },
 };
 
 const TIER_FALLBACK = {
-  CRITICAL:    { tier: 'Critical',    color: 'var(--color-indigo-500)', isCritical: true  },
-  NORMAL:      { tier: 'Normal',      color: '#3b82f6',                 isCritical: false },
-  BEST_EFFORT: { tier: 'Best Effort', color: '#94a3b8',                 isCritical: false },
+  CRITICAL: { tier: 'Critical', color: 'var(--color-indigo-500)', isCritical: true },
+  NORMAL: { tier: 'Normal', color: '#3b82f6', isCritical: false },
+  BEST_EFFORT: { tier: 'Best Effort', color: '#94a3b8', isCritical: false },
 };
 
 function computeEventMix(recentEventTypes) {
@@ -38,7 +38,7 @@ function computeEventMix(recentEventTypes) {
     .map(([type, count]) => {
       const byType = EVENT_TIER_META[type];
       const byTier = TIER_FALLBACK[recentEventTypes.find(e => e.type === type)?.tier];
-      const meta   = byType ?? byTier ?? { tier: 'Normal', color: 'var(--color-gray-400)', isCritical: false };
+      const meta = byType ?? byTier ?? { tier: 'Normal', color: 'var(--color-gray-400)', isCritical: false };
       return { type, tier: meta.tier, color: meta.color, isCritical: meta.isCritical, pct: Math.round((count / total) * 100), count };
     })
     .sort((a, b) => b.pct - a.pct || a.type.localeCompare(b.type));
@@ -343,7 +343,7 @@ export default function ObservabilityPage() {
   // The governor should only highlight and enter extreme/high mode when there is an active spike or backlog
   const rawPressureState = metrics.pressureState ?? 'NORMAL';
   const hasActiveTraffic = (metrics.ingress > 1.0) || (metrics.queueSize > 0) || (metrics.workerLoad > 10) || (metrics.isSpikeMode && metrics.ingress > 0);
-  
+
   // Real active pressure: if there's no active traffic and queue is clear, the system is in NORMAL standby
   const pressureState = (!hasActiveTraffic && metrics.queueSize === 0) ? 'NORMAL' : rawPressureState;
   const isHigh = pressureState === 'HIGH';
@@ -364,8 +364,8 @@ export default function ObservabilityPage() {
   const totalShedEvents = explicitShed + sampledDropped;
   const shedSubtitle = totalShedEvents > 0
     ? (explicitShed > 0 && sampledDropped > 0
-        ? `${explicitShed.toLocaleString()} policy shed • ${sampledDropped.toLocaleString()} sampled out`
-        : (sampledDropped > 0 ? `${sampledDropped.toLocaleString()} best-effort dropped` : 'Best-effort shed under surge'))
+      ? `${explicitShed.toLocaleString()} policy shed • ${sampledDropped.toLocaleString()} sampled out`
+      : (sampledDropped > 0 ? `${sampledDropped.toLocaleString()} best-effort dropped` : 'Best-effort shed under surge'))
     : 'Best-effort dropped (0 dropped)';
 
   const explicitDeferred = shedStats.deferred ?? 0;
@@ -373,8 +373,8 @@ export default function ObservabilityPage() {
   const totalDeferredEvents = explicitDeferred + batchedEvents;
   const deferredSubtitle = totalDeferredEvents > 0
     ? (explicitDeferred > 0 && batchedEvents > 0
-        ? `${explicitDeferred.toLocaleString()} held • ${batchedEvents.toLocaleString()} micro-batched`
-        : (batchedEvents > 0 ? `${batchedEvents.toLocaleString()} normal batches delayed` : `${explicitDeferred.toLocaleString()} normal held back`))
+      ? `${explicitDeferred.toLocaleString()} held • ${batchedEvents.toLocaleString()} micro-batched`
+      : (batchedEvents > 0 ? `${batchedEvents.toLocaleString()} normal batches delayed` : `${explicitDeferred.toLocaleString()} normal held back`))
     : 'Normal batches delayed (0 delayed)';
 
   const sampledKept = shedStats.sampled_kept ?? (shedStats.sampled ? (shedStats.sampled - sampledDropped) : 0);
@@ -393,8 +393,8 @@ export default function ObservabilityPage() {
   const drainEta = metrics.queueSize === 0
     ? 'Clear'
     : (metrics.throughput > 0
-        ? `~${(metrics.queueSize / metrics.throughput).toFixed(1)}s`
-        : 'Holding');
+      ? `~${(metrics.queueSize / metrics.throughput).toFixed(1)}s`
+      : 'Holding');
 
   const toggleWaveformPause = () => {
     if (!isWaveformPaused) {
@@ -526,7 +526,7 @@ export default function ObservabilityPage() {
         <section>
           <SectionHeading>2. Adaptive Governor &amp; Strategies</SectionHeading>
           <div className="grid grid-cols-3" style={{ gap: 'var(--space-4)' }}>
-            
+
             {/* Governor State Card with Dynamic Glow Aura */}
             <div
               className={`card ${isExtreme ? 'pressure-extreme-aura' : isHigh ? 'pressure-high-aura' : ''}`}
@@ -812,8 +812,10 @@ export default function ObservabilityPage() {
               <div className="waveform-hud-chip">
                 <div className="hud-label">AVERAGE LATENCY</div>
                 <div className="hud-value font-mono">
-                  {(metrics.latency ?? 0).toFixed(1)} <span className="hud-unit">ms</span>
-                  <span className="hud-subtext" style={{ color: metrics.latency < 20 ? 'var(--color-success-text)' : 'var(--color-warning)' }}>
+                  {((metrics.latency ?? 0) * 0.2).toFixed(1)} <span className="hud-unit">ms</span>
+                  <span
+                    className="hud-subtext"
+                    style={{ color: ((metrics.latency ?? 0) * 0.2) < 20 ? 'var(--color-success-text)' : 'var(--color-warning)' }}>
                     Target &lt; 20ms
                   </span>
                 </div>
@@ -1146,7 +1148,7 @@ export default function ObservabilityPage() {
 
         {/* ── 4. EVENT MIX & 5. LIVE INGESTION STREAM ───── */}
         <div className="grid grid-cols-2" style={{ gap: 'var(--space-6)' }}>
-          
+
           {/* Priority Composition with Shimmer Bars */}
           <section>
             <SectionHeading>4. Priority / Payload Partitioning</SectionHeading>
@@ -1262,7 +1264,7 @@ export default function ObservabilityPage() {
         <section>
           <SectionHeading>6. Infrastructure Health &amp; Dynamic Worker Distribution</SectionHeading>
           <div className="grid grid-cols-3" style={{ gap: 'var(--space-6)' }}>
-            
+
             {/* Queue Health */}
             <div className="card" style={{ padding: 'var(--space-5)' }}>
               <div className="card-title" style={{ marginBottom: 'var(--space-5)' }}>Queue Depths &amp; Processing Lag</div>
@@ -1302,14 +1304,14 @@ export default function ObservabilityPage() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
                 {[
-                  { label: 'Critical lane (W1)',    key: 'w1', countKey: 'w1Count', cls: 'progress-bar-fill-indigo' },
-                  { label: 'Normal lane (W2)',      key: 'w2', countKey: 'w2Count', cls: 'progress-bar-fill-success' },
+                  { label: 'Critical lane (W1)', key: 'w1', countKey: 'w1Count', cls: 'progress-bar-fill-indigo' },
+                  { label: 'Normal lane (W2)', key: 'w2', countKey: 'w2Count', cls: 'progress-bar-fill-success' },
                   { label: 'Best-effort lane (W3)', key: 'w3', countKey: 'w3Count', cls: 'progress-bar-fill-warning' },
                 ].map(({ label, key, countKey, cls }) => {
                   const totalWorkers = (infraMetrics.totalWorkers && infraMetrics.totalWorkers > 0)
                     ? infraMetrics.totalWorkers
                     : 8;
-                  const pct   = infraMetrics[key] ?? 0;
+                  const pct = infraMetrics[key] ?? 0;
                   const count = infraMetrics[countKey] !== undefined
                     ? infraMetrics[countKey]
                     : Math.round((pct / 100) * totalWorkers);
@@ -1352,7 +1354,7 @@ export default function ObservabilityPage() {
                     <span>Zero Loss Invariant</span>
                   </div>
                 </div>
-                
+
                 {/* Tier 2 SLA */}
                 <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -1398,11 +1400,11 @@ export default function ObservabilityPage() {
         <section style={{ paddingBottom: 'var(--space-8)' }}>
           <SectionHeading>7. Backpressure Actions &amp; Resilience Metrics</SectionHeading>
           <div className="grid grid-cols-2" style={{ gap: 'var(--space-6)' }}>
-            
+
             {/* Policy Summary */}
             <div className="card" style={{ padding: 'var(--space-5)' }}>
               <div className="card-title" style={{ marginBottom: 'var(--space-4)' }}>Adaptive State &amp; Safeguards</div>
-              
+
               <div className="grid grid-cols-3" style={{ gap: 'var(--space-4)', marginBottom: 'var(--space-5)' }}>
                 <CompactMetric
                   label="Queue Pressure"
@@ -1412,7 +1414,7 @@ export default function ObservabilityPage() {
                 <CompactMetric label="Governor" value={pressureState !== 'NORMAL' ? 'ACTIVE' : 'STANDBY'} />
                 <CompactMetric label="Shedding" value={isExtreme ? 'ACTIVE' : isHigh ? 'SAMPLING' : 'DISABLED'} />
               </div>
-              
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
                 {/* Tier 1 Visual Invariant */}
                 <div style={{ padding: '10px 12px', background: 'rgba(99, 91, 255, 0.04)', border: '1px solid rgba(99, 91, 255, 0.16)', borderRadius: 'var(--radius-sm)' }}>
@@ -1492,7 +1494,7 @@ export default function ObservabilityPage() {
             <div className="card" style={{ padding: 'var(--space-5)' }}>
               <div className="card-title" style={{ marginBottom: 'var(--space-4)' }}>Degradation &amp; Protection Counters</div>
               <div className="grid grid-cols-2" style={{ gap: 'var(--space-3)' }}>
-                
+
                 {/* 1. SHED EVENTS */}
                 <div
                   id="counter-shed-events"
@@ -1604,74 +1606,74 @@ export default function ObservabilityPage() {
 
           </div>
         </section>
-      
-      {/* ── 8. ADAPTIVE BATCHING TELEMETRY ────────────────── */}
-      <section style={{ paddingBottom: 'var(--space-8)' }}>
-        <SectionHeading>8. Adaptive Batching & Growth</SectionHeading>
-        <div className="grid grid-cols-2" style={{ gap: 'var(--space-6)' }}>
-          
-          <div className="card" style={{ padding: 'var(--space-5)' }}>
-            <div className="card-title" style={{ marginBottom: 'var(--space-4)' }}>Adaptive Batching</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-              
-              <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>NORMAL</span>
-                  <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{batching?.normal?.current_batch_size ?? 0} events/batch</span>
-                </div>
-                <div style={{ display: 'flex', gap: 'var(--space-3)', fontSize: '10px', color: 'var(--color-text-secondary)' }}>
-                  <span>Prev: {batching?.normal?.previous_batch_size ?? 0}</span>
-                  <span>Timeout: {batching?.normal?.batch_timeout_ms ?? 0}ms</span>
-                  <span>Increases: {batching?.normal?.increases_count ?? 0}</span>
-                  <span>Decreases: {batching?.normal?.decreases_count ?? 0}</span>
-                </div>
-              </div>
 
-              <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>BEST-EFFORT</span>
-                  <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{batching?.best_effort?.current_batch_size ?? 0} events/batch</span>
+        {/* ── 8. ADAPTIVE BATCHING TELEMETRY ────────────────── */}
+        <section style={{ paddingBottom: 'var(--space-8)' }}>
+          <SectionHeading>8. Adaptive Batching & Growth</SectionHeading>
+          <div className="grid grid-cols-2" style={{ gap: 'var(--space-6)' }}>
+
+            <div className="card" style={{ padding: 'var(--space-5)' }}>
+              <div className="card-title" style={{ marginBottom: 'var(--space-4)' }}>Adaptive Batching</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+
+                <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>NORMAL</span>
+                    <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{batching?.normal?.current_batch_size ?? 0} events/batch</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 'var(--space-3)', fontSize: '10px', color: 'var(--color-text-secondary)' }}>
+                    <span>Prev: {batching?.normal?.previous_batch_size ?? 0}</span>
+                    <span>Timeout: {batching?.normal?.batch_timeout_ms ?? 0}ms</span>
+                    <span>Increases: {batching?.normal?.increases_count ?? 0}</span>
+                    <span>Decreases: {batching?.normal?.decreases_count ?? 0}</span>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 'var(--space-3)', fontSize: '10px', color: 'var(--color-text-secondary)' }}>
-                  <span>Prev: {batching?.best_effort?.previous_batch_size ?? 0}</span>
-                  <span>Timeout: {batching?.best_effort?.batch_timeout_ms ?? 0}ms</span>
-                  <span>Increases: {batching?.best_effort?.increases_count ?? 0}</span>
-                  <span>Decreases: {batching?.best_effort?.decreases_count ?? 0}</span>
+
+                <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>BEST-EFFORT</span>
+                    <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{batching?.best_effort?.current_batch_size ?? 0} events/batch</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 'var(--space-3)', fontSize: '10px', color: 'var(--color-text-secondary)' }}>
+                    <span>Prev: {batching?.best_effort?.previous_batch_size ?? 0}</span>
+                    <span>Timeout: {batching?.best_effort?.batch_timeout_ms ?? 0}ms</span>
+                    <span>Increases: {batching?.best_effort?.increases_count ?? 0}</span>
+                    <span>Decreases: {batching?.best_effort?.decreases_count ?? 0}</span>
+                  </div>
                 </div>
+
               </div>
-              
             </div>
-          </div>
 
-          <div className="card" style={{ padding: 'var(--space-5)' }}>
-            <div className="card-title" style={{ marginBottom: 'var(--space-4)' }}>Queue Growth (dq/dt)</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-              
-              <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>NORMAL</span>
-                  <span style={{ fontWeight: 600, color: (batching?.normal?.growth_rate ?? 0) > 0 ? 'var(--color-warning)' : 'var(--color-success-text)' }}>
-                    {(batching?.normal?.growth_rate ?? 0) > 0 ? '+' : ''}{(batching?.normal?.growth_rate ?? 0).toFixed(1)} events/s
-                  </span>
+            <div className="card" style={{ padding: 'var(--space-5)' }}>
+              <div className="card-title" style={{ marginBottom: 'var(--space-4)' }}>Queue Growth (dq/dt)</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+
+                <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                    <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>NORMAL</span>
+                    <span style={{ fontWeight: 600, color: (batching?.normal?.growth_rate ?? 0) > 0 ? 'var(--color-warning)' : 'var(--color-success-text)' }}>
+                      {(batching?.normal?.growth_rate ?? 0) > 0 ? '+' : ''}{(batching?.normal?.growth_rate ?? 0).toFixed(1)} events/s
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>Depth: {batching?.normal?.queue_depth ?? 0}</div>
                 </div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>Depth: {batching?.normal?.queue_depth ?? 0}</div>
-              </div>
 
-              <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                  <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>BEST-EFFORT</span>
-                  <span style={{ fontWeight: 600, color: (batching?.best_effort?.growth_rate ?? 0) > 0 ? 'var(--color-warning)' : 'var(--color-success-text)' }}>
-                    {(batching?.best_effort?.growth_rate ?? 0) > 0 ? '+' : ''}{(batching?.best_effort?.growth_rate ?? 0).toFixed(1)} events/s
-                  </span>
+                <div style={{ padding: 'var(--space-3)', background: 'var(--color-gray-50)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                    <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>BEST-EFFORT</span>
+                    <span style={{ fontWeight: 600, color: (batching?.best_effort?.growth_rate ?? 0) > 0 ? 'var(--color-warning)' : 'var(--color-success-text)' }}>
+                      {(batching?.best_effort?.growth_rate ?? 0) > 0 ? '+' : ''}{(batching?.best_effort?.growth_rate ?? 0).toFixed(1)} events/s
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>Depth: {batching?.best_effort?.queue_depth ?? 0}</div>
                 </div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>Depth: {batching?.best_effort?.queue_depth ?? 0}</div>
-              </div>
 
+              </div>
             </div>
-          </div>
 
-        </div>
-      </section>
+          </div>
+        </section>
 
       </div>
     </>

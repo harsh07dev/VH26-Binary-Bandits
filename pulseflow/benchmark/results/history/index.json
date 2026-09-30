@@ -1,5 +1,29 @@
 [
   {
+    "benchmark_id": "benchmark_2026_09_05_154002_af90",
+    "timestamp": 1788603009.385,
+    "created_at": "2026-09-05 10:10:09 UTC",
+    "scenario": "FLASH_SALE",
+    "event_count": 100000,
+    "target_rate": 2000.0,
+    "seed": 42,
+    "naive_critical_loss": 8496,
+    "pulseflow_critical_loss": 0,
+    "critical_p95_improvement_pct": 78.08
+  },
+  {
+    "benchmark_id": "benchmark_2026_09_05_152647_1545",
+    "timestamp": 1788602213.715,
+    "created_at": "2026-09-05 09:56:53 UTC",
+    "scenario": "FLASH_SALE",
+    "event_count": 100000,
+    "target_rate": 2000.0,
+    "seed": 42,
+    "naive_critical_loss": 8496,
+    "pulseflow_critical_loss": 0,
+    "critical_p95_improvement_pct": 74.88
+  },
+  {
     "benchmark_id": "benchmark_2026_09_05_145548_a73e",
     "timestamp": 1788600348.943,
     "created_at": "2026-09-05 09:25:48 UTC",
