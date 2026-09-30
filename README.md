@@ -179,7 +179,7 @@ The **PulseFlow Observability Dashboard** (`http://localhost:5174`) provides an 
   - `TIER 1 (CRITICAL) QUEUE` with Zero-Loss Invariant monitoring.
   - `NET DRAIN VELOCITY` calculating instantaneous $R_{\text{proc}} - R_{\text{in}}$.
   - `ESTIMATED CLEAR TIME` providing real-time $Q_{\text{depth}} / \text{DrainRate}$ drain projections.
-  - `AVERAGE LATENCY` SLA meter scaled with instant `< 20ms` target validation.
+  - `AVERAGE LATENCY` real-time SLA tracking meter with dynamic `< 20ms` target validation.
 - **Buffer Bloat Comparison**: Real-time side-by-side comparison tracking the difference between PulseFlow's managed queue depth and Naive FIFO unbounded buffer bloat.
 - **Interactive Freeze & Scrubbing**: Freeze the live oscilloscope stream to inspect individual transient surge peaks without losing live telemetry.
 
